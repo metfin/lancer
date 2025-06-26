@@ -145,8 +145,10 @@ class DAMMPoolManager {
     });
   }
 
-  private static async scanAndUpdatePools(): Promise<void> {
+  static async scanAndUpdatePools(): Promise<void> {
     const poolEntries = this.extractPoolEntries();
+    console.log("📊 Lancer: Found pool entries:", poolEntries.length);
+
     const newPoolAddresses = new Set(
       poolEntries.map((entry) => entry.poolAddress)
     );
@@ -166,8 +168,15 @@ class DAMMPoolManager {
 
       this.currentPoolAddresses = newPoolAddresses;
       await ExtensionStorage.savePoolAddresses(Array.from(newPoolAddresses));
+    }
 
-      // Inject PnL data into the table
+    // Always inject PnL data into the table (not just when pool list changes)
+    if (poolEntries.length > 0) {
+      console.log(
+        "💰 Lancer: Injecting PnL data for",
+        poolEntries.length,
+        "pools"
+      );
       this.injectPnLIntoTable(poolEntries);
     }
   }
@@ -217,17 +226,35 @@ class DAMMPoolManager {
   }
 
   private static injectPnLIntoTable(poolEntries: PoolTableEntry[]): void {
+    console.log(
+      "🔧 Lancer: Starting PnL injection for",
+      poolEntries.length,
+      "entries"
+    );
+
     for (const entry of poolEntries) {
       try {
+        console.log("🏊 Lancer: Processing pool:", entry.poolAddress);
+
         // Remove existing PnL column if it exists
         const existingPnL = entry.element.querySelector(".lancer-pnl-column");
         if (existingPnL) {
           existingPnL.remove();
+          console.log(
+            "🗑️ Lancer: Removed existing PnL column for",
+            entry.poolAddress
+          );
         }
 
         // Find the grid container
         const gridContainer = entry.element.querySelector(".grid.gap-x-4");
-        if (!gridContainer) continue;
+        if (!gridContainer) {
+          console.log(
+            "❌ Lancer: No grid container found for",
+            entry.poolAddress
+          );
+          continue;
+        }
 
         // Get PnL data for this pool
         const pnlData = this.pnlData.get(entry.poolAddress);
@@ -284,9 +311,26 @@ class DAMMPoolManager {
         // Insert PnL column after pools column but before other columns
         if (poolsColumn && otherColumns.length > 0) {
           gridContainer.insertBefore(pnlColumn, otherColumns[0]);
+          console.log(
+            "✅ Lancer: Inserted PnL column before other columns for",
+            entry.poolAddress
+          );
         } else if (poolsColumn) {
           gridContainer.appendChild(pnlColumn);
+          console.log("✅ Lancer: Appended PnL column for", entry.poolAddress);
+        } else {
+          console.log(
+            "❌ Lancer: No pools column found for",
+            entry.poolAddress
+          );
         }
+
+        console.log(
+          "💵 Lancer: PnL values - Amount:",
+          pnl,
+          "Percentage:",
+          pnlPercentage
+        );
       } catch (error) {
         console.error(
           "❌ Lancer: Error injecting PnL for pool:",
@@ -423,6 +467,12 @@ async function handleDAMMV2Activation() {
 
       // Add PnL header to the table
       DAMMPoolManager.addPnLHeader();
+
+      // Force initial PnL injection after a short delay
+      setTimeout(() => {
+        console.log("🔄 Lancer: Forcing initial PnL injection...");
+        DAMMPoolManager.scanAndUpdatePools();
+      }, 1000);
 
       console.log("⚡ Lancer: DAMM V2 functionality initialized");
     }, 500);
