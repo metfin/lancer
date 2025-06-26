@@ -754,6 +754,25 @@ export class LancerBackend {
         2
       )} USD (${totalPnLPercentage.toFixed(2)}%)`
     );
+
+    // Dispatch event to notify frontend about PnL update
+    this.notifyPnLUpdate();
+  }
+
+  /**
+   * Notify frontend about PnL data updates
+   */
+  private notifyPnLUpdate(): void {
+    if (typeof window !== "undefined" && window.document) {
+      const event = new CustomEvent("lancerPnLUpdated", {
+        detail: {
+          overallPnL: this.overallPnL,
+          positionCount: this.positionPnLData.size,
+          timestamp: new Date(),
+        },
+      });
+      window.document.dispatchEvent(event);
+    }
   }
 
   /**
@@ -803,7 +822,7 @@ export class LancerBackend {
     try {
       // Try Jupiter first
       const response = await fetch(
-        `https://price.jup.ag/v4/price?ids=${mintAddress}`
+        `https://lite-api.jup.ag/price/v2?ids=${mintAddress}`
       );
 
       if (response.ok) {
@@ -962,6 +981,15 @@ export class LancerBackend {
       console.log(
         `📋 Updated tracked pool addresses: ${poolAddresses.length} pools`
       );
+
+      // Trigger immediate PnL calculation for all loaded positions
+      if (poolAddresses.length > 0) {
+        console.log(
+          "🔄 Lancer Backend: Triggering immediate PnL calculation..."
+        );
+        await this.updateAllPositionsPnL();
+        console.log("✅ Lancer Backend: Initial PnL calculation completed");
+      }
     } catch (error) {
       console.error("❌ Error loading user positions:", error);
       throw error;

@@ -159,11 +159,37 @@ class OverallPnLManager {
     usd: 0,
     percentage: 0,
   };
+  private static pnlUpdateListener: ((event: any) => Promise<void>) | null =
+    null;
 
   static async initialize(): Promise<void> {
     console.log("💰 Lancer: Initializing Overall PnL Manager");
+
+    // Set up event listener for backend PnL updates
+    this.setupPnLUpdateListener();
+
     this.startOverallPnLMonitoring();
     await this.calculateAndInjectOverallPnL();
+  }
+
+  /**
+   * Set up listener for backend PnL update events
+   */
+  private static setupPnLUpdateListener(): void {
+    // Remove existing listener if any
+    if (this.pnlUpdateListener) {
+      document.removeEventListener("lancerPnLUpdated", this.pnlUpdateListener);
+    }
+
+    // Create and store new listener
+    this.pnlUpdateListener = async () => {
+      console.log(
+        "🔔 OverallPnL: Received PnL update notification from backend"
+      );
+      await this.calculateAndInjectOverallPnL();
+    };
+
+    document.addEventListener("lancerPnLUpdated", this.pnlUpdateListener);
   }
 
   private static startOverallPnLMonitoring(): void {
@@ -337,8 +363,6 @@ class OverallPnLManager {
 
     // Insert the PnL stat at the end of the stats section
     statsSection.appendChild(pnlStatDiv);
-
-    console.log("💰 Lancer: Overall PnL added to Net Value stats section");
   }
 
   private static updateOverallPnLInNetValue(
@@ -378,8 +402,6 @@ class OverallPnLManager {
         percentage >= 0 ? "+" : ""
       }${percentage.toFixed(2)}%`;
     }
-
-    console.log("💰 Lancer: Overall PnL in Net Value component updated");
   }
 
   static getOverallPnL(): { usd: number; percentage: number } {
@@ -392,11 +414,11 @@ class OverallPnLManager {
       this.pnlObserver = null;
     }
 
-    // Remove any injected PnL sections
-    const existingPnLSections = document.querySelectorAll(
-      ".lancer-overall-pnl-section"
-    );
-    existingPnLSections.forEach((section) => section.remove());
+    // Remove event listener
+    if (this.pnlUpdateListener) {
+      document.removeEventListener("lancerPnLUpdated", this.pnlUpdateListener);
+      this.pnlUpdateListener = null;
+    }
 
     this.isOverallPnLInjected = false;
     this.overallPnL = { usd: 0, percentage: 0 };
@@ -409,9 +431,14 @@ class DAMMPoolManager {
   private static pnlData: Map<string, PositionPnL> = new Map();
   private static isUpdating: boolean = false;
   private static updateTimeout: NodeJS.Timeout | null = null;
+  private static pnlUpdateListener: ((event: any) => Promise<void>) | null =
+    null;
 
   static async initialize(): Promise<void> {
     console.log("🎯 Lancer: Initializing DAMM Pool Manager");
+
+    // Set up event listener for backend PnL updates
+    this.setupPnLUpdateListener();
 
     // Start monitoring the pool table first
     this.startPoolTableMonitoring();
@@ -422,6 +449,9 @@ class DAMMPoolManager {
       const existingPools = await ExtensionStorage.getPoolAddresses();
       this.currentPoolAddresses = new Set(existingPools);
 
+      // Wait for backend to have calculated PnL data before loading
+      await this.waitForBackendPnLData();
+
       // Load real PnL data from backend
       await this.loadRealPnLData();
 
@@ -430,10 +460,102 @@ class DAMMPoolManager {
     }, 1000);
   }
 
+  /**
+   * Set up listener for backend PnL update events
+   */
+  private static setupPnLUpdateListener(): void {
+    // Remove existing listener if any
+    if (this.pnlUpdateListener) {
+      document.removeEventListener("lancerPnLUpdated", this.pnlUpdateListener);
+    }
+
+    // Create and store new listener
+    this.pnlUpdateListener = async () => {
+      console.log("🔔 Lancer: Received PnL update notification from backend");
+
+      // Reload PnL data from backend
+      await this.loadRealPnLData();
+
+      // Update the UI immediately
+      await this.scanAndUpdatePools();
+      await OverallPnLManager.calculateAndInjectOverallPnL();
+
+      console.log("✅ Lancer: UI updated with latest PnL data");
+    };
+
+    document.addEventListener("lancerPnLUpdated", this.pnlUpdateListener);
+  }
+
+  /**
+   * Wait for backend to have PnL data available
+   */
+  private static async waitForBackendPnLData(
+    maxWaitTime = 10000
+  ): Promise<void> {
+    const startTime = Date.now();
+    const checkInterval = 500; // Check every 500ms
+
+    return new Promise((resolve) => {
+      const checkForData = () => {
+        const backendData = lancerBackend.getAllPositionsPnL();
+        const hasData = backendData.size > 0;
+        const elapsedTime = Date.now() - startTime;
+
+        if (hasData) {
+          console.log("✅ Lancer: Backend PnL data is available");
+          resolve();
+          return;
+        }
+
+        if (elapsedTime >= maxWaitTime) {
+          console.warn("⚠️ Lancer: Timeout waiting for backend PnL data");
+          resolve(); // Continue anyway
+          return;
+        }
+
+        console.log("⏳ Lancer: Waiting for backend PnL data...");
+        setTimeout(checkForData, checkInterval);
+      };
+
+      checkForData();
+    });
+  }
+
   static async loadRealPnLData(): Promise<void> {
     try {
+      console.log("🔍 Lancer: Loading PnL data from backend...");
+
       // Get PnL data from the backend
       const allPnLData = lancerBackend.getAllPositionsPnL();
+
+      console.log(`📊 Lancer: Backend returned ${allPnLData.size} positions`);
+
+      // Debug: Log what the backend returned
+      if (allPnLData.size > 0) {
+        console.log("🔍 Backend PnL data detail:");
+        for (const [poolAddress, pnlData] of allPnLData) {
+          console.log(
+            `  Pool ${poolAddress.slice(0, 8)}...: $${pnlData.pnlUSD.toFixed(
+              2
+            )} (${pnlData.pnlPercentage.toFixed(2)}%)`
+          );
+        }
+      } else {
+        console.log("⚠️ No PnL data returned from backend");
+        // Let's check if backend has positions loaded
+        const backendPositions = lancerBackend.getUserPositions();
+        console.log(
+          `📍 Backend has ${backendPositions.size} user positions loaded`
+        );
+
+        // Check if backend is initialized
+        const isBackendInit = lancerBackend.isInitialized();
+        console.log(`🔧 Backend initialized: ${isBackendInit}`);
+
+        // Check overall PnL data
+        const overallPnL = lancerBackend.getOverallPnL();
+        console.log(`💰 Backend overall PnL:`, overallPnL);
+      }
 
       // Convert to the format expected by the UI
       this.pnlData.clear();
@@ -833,6 +955,13 @@ class DAMMPoolManager {
       clearTimeout(this.updateTimeout);
       this.updateTimeout = null;
     }
+
+    // Remove event listener
+    if (this.pnlUpdateListener) {
+      document.removeEventListener("lancerPnLUpdated", this.pnlUpdateListener);
+      this.pnlUpdateListener = null;
+    }
+
     this.currentPoolAddresses.clear();
     this.pnlData.clear();
     this.isUpdating = false;
