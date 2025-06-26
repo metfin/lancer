@@ -92,6 +92,8 @@ class DAMMPoolManager {
   private static poolTableObserver: MutationObserver | null = null;
   private static currentPoolAddresses: Set<string> = new Set();
   private static pnlData: Map<string, PositionPnL> = new Map();
+  private static isUpdating: boolean = false;
+  private static updateTimeout: NodeJS.Timeout | null = null;
 
   static async initialize(): Promise<void> {
     console.log("🎯 Lancer: Initializing DAMM Pool Manager");
@@ -131,11 +133,39 @@ class DAMMPoolManager {
     console.log("✅ Lancer: Found pool table, starting monitoring");
 
     // Initial scan of existing pools
-    this.scanAndUpdatePools();
+    this.debouncedScanAndUpdate();
 
     // Set up mutation observer to watch for table changes
-    this.poolTableObserver = new MutationObserver(() => {
-      this.scanAndUpdatePools();
+    this.poolTableObserver = new MutationObserver((mutations) => {
+      // Ignore mutations caused by our own modifications
+      if (this.isUpdating) {
+        return;
+      }
+
+      // Check if mutations include actual content changes (not just our PnL columns)
+      const hasRelevantChanges = mutations.some((mutation) => {
+        // Ignore mutations to our own elements
+        if (mutation.target instanceof Element) {
+          if (
+            mutation.target.classList.contains("lancer-pnl-column") ||
+            mutation.target.classList.contains("lancer-pnl-header") ||
+            mutation.target.closest(".lancer-pnl-column") ||
+            mutation.target.closest(".lancer-pnl-header")
+          ) {
+            return false;
+          }
+        }
+
+        // Check for actual pool row changes
+        return (
+          mutation.type === "childList" &&
+          (mutation.addedNodes.length > 0 || mutation.removedNodes.length > 0)
+        );
+      });
+
+      if (hasRelevantChanges) {
+        this.debouncedScanAndUpdate();
+      }
     });
 
     this.poolTableObserver.observe(poolTable, {
@@ -145,39 +175,66 @@ class DAMMPoolManager {
     });
   }
 
-  static async scanAndUpdatePools(): Promise<void> {
-    const poolEntries = this.extractPoolEntries();
-    console.log("📊 Lancer: Found pool entries:", poolEntries.length);
-
-    const newPoolAddresses = new Set(
-      poolEntries.map((entry) => entry.poolAddress)
-    );
-
-    // Check if pool list has changed
-    const hasChanged =
-      newPoolAddresses.size !== this.currentPoolAddresses.size ||
-      [...newPoolAddresses].some(
-        (addr) => !this.currentPoolAddresses.has(addr)
-      );
-
-    if (hasChanged) {
-      console.log("🔄 Lancer: Pool list updated", {
-        previous: Array.from(this.currentPoolAddresses),
-        current: Array.from(newPoolAddresses),
-      });
-
-      this.currentPoolAddresses = newPoolAddresses;
-      await ExtensionStorage.savePoolAddresses(Array.from(newPoolAddresses));
+  static debouncedScanAndUpdate(): void {
+    // Clear existing timeout
+    if (this.updateTimeout) {
+      clearTimeout(this.updateTimeout);
     }
 
-    // Always inject PnL data into the table (not just when pool list changes)
-    if (poolEntries.length > 0) {
-      console.log(
-        "💰 Lancer: Injecting PnL data for",
-        poolEntries.length,
-        "pools"
+    // Set new timeout to debounce updates
+    this.updateTimeout = setTimeout(() => {
+      this.scanAndUpdatePools();
+    }, 300); // 300ms debounce
+  }
+
+  static async scanAndUpdatePools(): Promise<void> {
+    // Prevent recursive calls
+    if (this.isUpdating) {
+      return;
+    }
+
+    this.isUpdating = true;
+
+    try {
+      const poolEntries = this.extractPoolEntries();
+
+      // Only log if there's a significant change
+      if (poolEntries.length !== this.currentPoolAddresses.size) {
+        console.log(
+          "📊 Lancer: Pool entries count changed:",
+          poolEntries.length
+        );
+      }
+
+      const newPoolAddresses = new Set(
+        poolEntries.map((entry) => entry.poolAddress)
       );
-      this.injectPnLIntoTable(poolEntries);
+
+      // Check if pool list has changed
+      const hasChanged =
+        newPoolAddresses.size !== this.currentPoolAddresses.size ||
+        [...newPoolAddresses].some(
+          (addr) => !this.currentPoolAddresses.has(addr)
+        );
+
+      if (hasChanged) {
+        console.log("🔄 Lancer: Pool list updated", {
+          count: newPoolAddresses.size,
+          addresses: Array.from(newPoolAddresses),
+        });
+
+        this.currentPoolAddresses = newPoolAddresses;
+        await ExtensionStorage.savePoolAddresses(Array.from(newPoolAddresses));
+      }
+
+      // Always inject PnL data into the table (not just when pool list changes)
+      if (poolEntries.length > 0) {
+        this.injectPnLIntoTable(poolEntries);
+      }
+    } catch (error) {
+      console.error("❌ Lancer: Error in scanAndUpdatePools:", error);
+    } finally {
+      this.isUpdating = false;
     }
   }
 
@@ -226,33 +283,16 @@ class DAMMPoolManager {
   }
 
   private static injectPnLIntoTable(poolEntries: PoolTableEntry[]): void {
-    console.log(
-      "🔧 Lancer: Starting PnL injection for",
-      poolEntries.length,
-      "entries"
-    );
+    let injectedCount = 0;
 
     for (const entry of poolEntries) {
       try {
-        console.log("🏊 Lancer: Processing pool:", entry.poolAddress);
-
-        // Remove existing PnL column if it exists
+        // Check if PnL column already exists and is up to date
         const existingPnL = entry.element.querySelector(".lancer-pnl-column");
-        if (existingPnL) {
-          existingPnL.remove();
-          console.log(
-            "🗑️ Lancer: Removed existing PnL column for",
-            entry.poolAddress
-          );
-        }
 
         // Find the grid container
         const gridContainer = entry.element.querySelector(".grid.gap-x-4");
         if (!gridContainer) {
-          console.log(
-            "❌ Lancer: No grid container found for",
-            entry.poolAddress
-          );
           continue;
         }
 
@@ -263,7 +303,36 @@ class DAMMPoolManager {
           ? pnlData.pnlPercentage
           : this.generateRandomPnLPercentage();
 
-        // Create PnL column
+        // If PnL column exists, just update the values instead of recreating
+        if (existingPnL) {
+          const pnlValue = existingPnL.querySelector(".lancer-pnl-value");
+          const pnlPercent = existingPnL.querySelector(".lancer-pnl-percent");
+
+          if (pnlValue && pnlPercent) {
+            // Update existing values
+            pnlValue.className = `flex flex-rows items-center whitespace-nowrap text-sm font-medium lancer-pnl-value ${
+              pnl >= 0 ? "text-green-500" : "text-red-500"
+            }`;
+            pnlValue.textContent = `${pnl >= 0 ? "+" : ""}$${Math.abs(
+              pnl
+            ).toFixed(2)}`;
+
+            pnlPercent.className = `text-xs lancer-pnl-percent ${
+              pnl >= 0 ? "text-green-400" : "text-red-400"
+            }`;
+            pnlPercent.textContent = `${
+              pnlPercentage >= 0 ? "+" : ""
+            }${pnlPercentage.toFixed(2)}%`;
+            continue;
+          }
+        }
+
+        // Remove existing PnL column if it exists but is malformed
+        if (existingPnL) {
+          existingPnL.remove();
+        }
+
+        // Create new PnL column
         const pnlColumn = document.createElement("div");
         pnlColumn.className =
           "pr-1 flex text-end justify-end lancer-pnl-column";
@@ -274,7 +343,7 @@ class DAMMPoolManager {
 
         // PnL value
         const pnlValue = document.createElement("div");
-        pnlValue.className = `flex flex-rows items-center whitespace-nowrap text-sm font-medium ${
+        pnlValue.className = `flex flex-rows items-center whitespace-nowrap text-sm font-medium lancer-pnl-value ${
           pnl >= 0 ? "text-green-500" : "text-red-500"
         }`;
         pnlValue.textContent = `${pnl >= 0 ? "+" : ""}$${Math.abs(pnl).toFixed(
@@ -283,7 +352,7 @@ class DAMMPoolManager {
 
         // PnL percentage
         const pnlPercent = document.createElement("div");
-        pnlPercent.className = `text-xs ${
+        pnlPercent.className = `text-xs lancer-pnl-percent ${
           pnl >= 0 ? "text-green-400" : "text-red-400"
         }`;
         pnlPercent.textContent = `${
@@ -311,26 +380,11 @@ class DAMMPoolManager {
         // Insert PnL column after pools column but before other columns
         if (poolsColumn && otherColumns.length > 0) {
           gridContainer.insertBefore(pnlColumn, otherColumns[0]);
-          console.log(
-            "✅ Lancer: Inserted PnL column before other columns for",
-            entry.poolAddress
-          );
         } else if (poolsColumn) {
           gridContainer.appendChild(pnlColumn);
-          console.log("✅ Lancer: Appended PnL column for", entry.poolAddress);
-        } else {
-          console.log(
-            "❌ Lancer: No pools column found for",
-            entry.poolAddress
-          );
         }
 
-        console.log(
-          "💵 Lancer: PnL values - Amount:",
-          pnl,
-          "Percentage:",
-          pnlPercentage
-        );
+        injectedCount++;
       } catch (error) {
         console.error(
           "❌ Lancer: Error injecting PnL for pool:",
@@ -338,6 +392,11 @@ class DAMMPoolManager {
           error
         );
       }
+    }
+
+    // Only log if we actually injected new columns
+    if (injectedCount > 0) {
+      console.log(`💰 Lancer: Injected PnL for ${injectedCount} pools`);
     }
   }
 
@@ -414,8 +473,13 @@ class DAMMPoolManager {
       this.poolTableObserver.disconnect();
       this.poolTableObserver = null;
     }
+    if (this.updateTimeout) {
+      clearTimeout(this.updateTimeout);
+      this.updateTimeout = null;
+    }
     this.currentPoolAddresses.clear();
     this.pnlData.clear();
+    this.isUpdating = false;
   }
 }
 
@@ -471,7 +535,7 @@ async function handleDAMMV2Activation() {
       // Force initial PnL injection after a short delay
       setTimeout(() => {
         console.log("🔄 Lancer: Forcing initial PnL injection...");
-        DAMMPoolManager.scanAndUpdatePools();
+        DAMMPoolManager.debouncedScanAndUpdate();
       }, 1000);
 
       console.log("⚡ Lancer: DAMM V2 functionality initialized");
@@ -633,7 +697,9 @@ function addLancerToFooter(isRpcConfigured = false) {
   // Create status indicator (green dot for active, yellow for not configured)
   const statusDot = document.createElement("div");
   statusDot.className = `size-[14px] rounded-full border-[3.5px] transition-colors duration-300 ${
-    isRpcConfigured ? "text-green-500" : "text-yellow-500"
+    isRpcConfigured
+      ? "text-success-primary bg-success-primary border-success-primary"
+      : "text-danger-primary bg-danger-primary border-danger-primary"
   }`;
 
   // Create Lancer text
