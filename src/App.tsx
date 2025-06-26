@@ -3,8 +3,8 @@ import { Toaster } from "@/components/ui/sonner";
 
 function App() {
   return (
-    <div className="min-h-screen bg-background p-4">
-      <div className="max-w-md mx-auto">
+    <div className="min-h-screen bg-background p-4 flex flex-col items-center justify-center">
+      <div className="max-w-md mx-auto w-full h-full">
         <SettingsForm />
       </div>
       <Toaster />

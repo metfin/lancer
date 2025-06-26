@@ -1,11 +1,9 @@
 export interface ExtensionSettings {
   rpcUrl: string;
-  swApiKey: string;
 }
 
 const DEFAULT_SETTINGS: ExtensionSettings = {
   rpcUrl: "",
-  swApiKey: "",
 };
 
 export class ExtensionStorage {

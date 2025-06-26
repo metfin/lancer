@@ -22,26 +22,10 @@ export class ExtensionBridge {
   }
 
   /**
-   * Check if SW API key is configured
-   */
-  static async hasSwApiKey(): Promise<boolean> {
-    const settings = await this.getSettings();
-    return settings.swApiKey.trim() !== "";
-  }
-
-  /**
    * Get just the RPC URL
    */
   static async getRpcUrl(): Promise<string | null> {
     const settings = await this.getSettings();
     return settings.rpcUrl.trim() || null;
-  }
-
-  /**
-   * Get just the SW API key
-   */
-  static async getSwApiKey(): Promise<string | null> {
-    const settings = await this.getSettings();
-    return settings.swApiKey.trim() || null;
   }
 }
