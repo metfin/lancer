@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Theme Provider Test</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        padding: 20px;
+        transition: background-color 0.3s, color 0.3s;
+      }
+      .dark {
+        background-color: #1a1a1a;
+        color: #e0e0e0;
+      }
+      .light {
+        background-color: #ffffff;
+        color: #333333;
+      }
+      button {
+        margin: 10px;
+        padding: 10px 20px;
+        cursor: pointer;
+        border: none;
+        border-radius: 4px;
+      }
+      .theme-info {
+        margin: 20px 0;
+        padding: 10px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Theme Provider Test</h1>
+    <div class="theme-info">
+      <p>
+        <strong>Current Theme:</strong>
+        <span id="current-theme">Loading...</span>
+      </p>
+      <p><strong>Storage Key:</strong> lancer-ui-theme</p>
+      <p>
+        <strong>Storage Type:</strong>
+        <span id="storage-type">Detecting...</span>
+      </p>
+    </div>
+
+    <div>
+      <button onclick="setTheme('light')">Light Theme</button>
+      <button onclick="setTheme('dark')">Dark Theme</button>
+      <button onclick="setTheme('system')">System Theme</button>
+    </div>
+
+    <div>
+      <button onclick="checkStorage()">Check Storage</button>
+      <button onclick="clearTheme()">Clear Theme</button>
+    </div>
+
+    <div id="storage-content" class="theme-info"></div>
+
+    <script>
+      // Simple theme provider simulation for testing
+      let currentTheme = "dark";
+      const storageKey = "lancer-ui-theme";
+
+      // Check if we're in Chrome extension context
+      function isExtensionContext() {
+        return typeof chrome !== "undefined" && chrome.storage;
+      }
+
+      // Get theme from storage
+      async function getThemeFromStorage() {
+        try {
+          if (isExtensionContext()) {
+            const result = await chrome.storage.local.get(storageKey);
+            return result[storageKey] || "dark";
+          } else {
+            return localStorage.getItem(storageKey) || "dark";
+          }
+        } catch (error) {
+          console.error("Failed to get theme:", error);
+          return "dark";
+        }
+      }
+
+      // Save theme to storage
+      async function saveThemeToStorage(theme) {
+        try {
+          if (isExtensionContext()) {
+            await chrome.storage.local.set({ [storageKey]: theme });
+          } else {
+            localStorage.setItem(storageKey, theme);
+          }
+        } catch (error) {
+          console.error("Failed to save theme:", error);
+        }
+      }
+
+      // Apply theme to UI
+      function applyTheme(theme) {
+        document.body.classList.remove("light", "dark");
+
+        if (theme === "system") {
+          const systemTheme = window.matchMedia("(prefers-color-scheme: dark)")
+            .matches
+            ? "dark"
+            : "light";
+          document.body.classList.add(systemTheme);
+          document.getElementById(
+            "current-theme"
+          ).textContent = `${theme} (${systemTheme})`;
+        } else {
+          document.body.classList.add(theme);
+          document.getElementById("current-theme").textContent = theme;
+        }
+
+        currentTheme = theme;
+      }
+
+      // Set theme
+      async function setTheme(theme) {
+        await saveThemeToStorage(theme);
+        applyTheme(theme);
+      }
+
+      // Check storage contents
+      async function checkStorage() {
+        const storageContent = document.getElementById("storage-content");
+
+        if (isExtensionContext()) {
+          const result = await chrome.storage.local.get(null);
+          storageContent.innerHTML = `<strong>Chrome Storage Contents:</strong><pre>${JSON.stringify(
+            result,
+            null,
+            2
+          )}</pre>`;
+        } else {
+          const localStorageData = {};
+          for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            localStorageData[key] = localStorage.getItem(key);
+          }
+          storageContent.innerHTML = `<strong>LocalStorage Contents:</strong><pre>${JSON.stringify(
+            localStorageData,
+            null,
+            2
+          )}</pre>`;
+        }
+      }
+
+      // Clear theme
+      async function clearTheme() {
+        try {
+          if (isExtensionContext()) {
+            await chrome.storage.local.remove(storageKey);
+          } else {
+            localStorage.removeItem(storageKey);
+          }
+          await setTheme("dark"); // Reset to default
+        } catch (error) {
+          console.error("Failed to clear theme:", error);
+        }
+      }
+
+      // Initialize
+      async function init() {
+        // Set storage type indicator
+        document.getElementById("storage-type").textContent =
+          isExtensionContext()
+            ? "Chrome Extension Storage"
+            : "LocalStorage (Development)";
+
+        // Load saved theme
+        const savedTheme = await getThemeFromStorage();
+        applyTheme(savedTheme);
+
+        // Check storage on load
+        await checkStorage();
+      }
+
+      // Run when page loads
+      init();
+    </script>
+  </body>
+</html>
