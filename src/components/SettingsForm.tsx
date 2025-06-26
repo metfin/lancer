@@ -4,9 +4,19 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import {
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerTrigger,
+} from "@/components/ui/drawer";
 import { ExtensionStorage, type ExtensionSettings } from "@/lib/storage";
 import { toast } from "sonner";
-import { Settings, Zap, Save, RotateCcw } from "lucide-react";
+import { Settings, Zap, Save, RotateCcw, AlertTriangle } from "lucide-react";
 
 export function SettingsForm() {
   const [settings, setSettings] = useState<ExtensionSettings>({
@@ -14,6 +24,7 @@ export function SettingsForm() {
   });
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
   useEffect(() => {
     loadSettings();
@@ -47,13 +58,14 @@ export function SettingsForm() {
       await ExtensionStorage.clearSettings();
       setSettings({ rpcUrl: "" });
       toast.success("Settings reset successfully");
+      setIsDrawerOpen(false);
     } catch (error) {
       toast.error("Failed to reset settings");
     }
   };
 
   const isValidUrl = (url: string) => {
-    if (!url) return true; // Allow empty for optional fields
+    if (!url) return true;
     try {
       new URL(url);
       return true;
@@ -122,9 +134,38 @@ export function SettingsForm() {
             {loading ? "Saving..." : "Save Settings"}
           </Button>
 
-          <Button variant="outline" onClick={handleReset} disabled={loading}>
-            <RotateCcw className="h-4 w-4" />
-          </Button>
+          <Drawer open={isDrawerOpen} onOpenChange={setIsDrawerOpen}>
+            <DrawerTrigger asChild>
+              <Button variant="outline" disabled={loading}>
+                <RotateCcw className="h-4 w-4" />
+              </Button>
+            </DrawerTrigger>
+            <DrawerContent>
+              <DrawerHeader>
+                <DrawerTitle className="flex items-center gap-2 justify-center w-full">
+                  <AlertTriangle className="h-5 w-5 text-destructive" />
+                  <span className="text-xl">Reset Settings</span>
+                </DrawerTitle>
+                <DrawerDescription>
+                  Are you sure you want to reset all settings? This will clear
+                  your RPC URL and you'll need to configure it again.
+                </DrawerDescription>
+              </DrawerHeader>
+              <DrawerFooter className="flex justify-between gap-4">
+                <Button
+                  variant="destructive"
+                  onClick={handleReset}
+                  disabled={loading}
+                >
+                  <RotateCcw className="h-4 w-4 mr-2" />
+                  Reset Settings
+                </Button>
+                <DrawerClose asChild>
+                  <Button variant="outline">Cancel</Button>
+                </DrawerClose>
+              </DrawerFooter>
+            </DrawerContent>
+          </Drawer>
         </div>
 
         <div className="text-xs text-muted-foreground text-center">
