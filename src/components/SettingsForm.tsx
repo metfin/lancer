@@ -26,12 +26,14 @@ import {
   Database,
   Copy,
   Trash2,
+  Wallet,
 } from "lucide-react";
 
 export function SettingsForm() {
   const [settings, setSettings] = useState<ExtensionSettings>({
     rpcUrl: "",
     dammPoolAddresses: [],
+    walletAddress: "",
   });
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
@@ -68,7 +70,7 @@ export function SettingsForm() {
   const handleReset = async () => {
     try {
       await ExtensionStorage.clearSettings();
-      setSettings({ rpcUrl: "", dammPoolAddresses: [] });
+      setSettings({ rpcUrl: "", dammPoolAddresses: [], walletAddress: "" });
       toast.success("Settings reset successfully");
       setIsDrawerOpen(false);
     } catch (error) {
@@ -96,6 +98,17 @@ export function SettingsForm() {
     }
   };
 
+  const copyWalletAddress = async () => {
+    if (settings.walletAddress.trim()) {
+      try {
+        await navigator.clipboard.writeText(settings.walletAddress);
+        toast.success("Wallet address copied to clipboard");
+      } catch (error) {
+        toast.error("Failed to copy wallet address");
+      }
+    }
+  };
+
   const isValidUrl = (url: string) => {
     if (!url) return true;
     try {
@@ -106,7 +119,19 @@ export function SettingsForm() {
     }
   };
 
-  const canSave = settings.rpcUrl.trim() !== "" && isValidUrl(settings.rpcUrl);
+  const isValidSolanaAddress = (address: string) => {
+    if (!address) return true;
+    // Solana addresses are base58 encoded and 32-44 characters long
+    // They use the base58 alphabet: 123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz
+    const base58Regex = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+    return base58Regex.test(address);
+  };
+
+  const canSave =
+    settings.rpcUrl.trim() !== "" &&
+    isValidUrl(settings.rpcUrl) &&
+    settings.walletAddress.trim() !== "" &&
+    isValidSolanaAddress(settings.walletAddress);
 
   if (initialLoading) {
     return (
@@ -152,6 +177,53 @@ export function SettingsForm() {
           )}
           <p className="text-xs text-muted-foreground">
             Solana RPC endpoint for fetching position data.
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Label
+            htmlFor="walletAddress"
+            className="flex items-center space-x-2"
+          >
+            <Wallet className="h-4 w-4 text-primary" />
+            <span>Wallet Address</span>
+            <span className="text-destructive">*</span>
+          </Label>
+          <div className="flex space-x-2">
+            <Input
+              id="walletAddress"
+              type="text"
+              placeholder="Your Solana wallet address (e.g., 11111111111111111111111111111112)"
+              value={settings.walletAddress}
+              onChange={(e) =>
+                setSettings((prev) => ({
+                  ...prev,
+                  walletAddress: e.target.value,
+                }))
+              }
+              className={
+                !isValidSolanaAddress(settings.walletAddress)
+                  ? "border-destructive"
+                  : ""
+              }
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={copyWalletAddress}
+              disabled={!settings.walletAddress.trim()}
+            >
+              <Copy className="h-4 w-4" />
+            </Button>
+          </div>
+          {!isValidSolanaAddress(settings.walletAddress) &&
+            settings.walletAddress.trim() !== "" && (
+              <p className="text-sm text-destructive">
+                Please enter a valid Solana address (32-44 base58 characters)
+              </p>
+            )}
+          <p className="text-xs text-muted-foreground">
+            Your Solana wallet address to track DAMM positions for.
           </p>
         </div>
 
@@ -272,7 +344,7 @@ export function SettingsForm() {
                 </DrawerTitle>
                 <DrawerDescription>
                   Are you sure you want to reset all settings? This will clear
-                  your RPC URL and all tracked pool addresses.
+                  your RPC URL, wallet address, and all tracked pool addresses.
                 </DrawerDescription>
               </DrawerHeader>
               <DrawerFooter className="flex justify-between gap-4">

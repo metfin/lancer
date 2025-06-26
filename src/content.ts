@@ -15,6 +15,41 @@ declare global {
 // Expose the backend to the global scope for debugging
 if (typeof window !== "undefined") {
   window.lancerBackend = lancerBackend;
+
+  // Also expose wallet address getter for debugging
+  (window as any).lancerGetWallet = async () => {
+    const address = await getWalletAddressFromStorage();
+    console.log("🔍 Manual wallet address from storage:", address);
+    return address;
+  };
+
+  // Expose settings debugging
+  (window as any).lancerGetSettings = async () => {
+    const settings = await ExtensionStorage.getSettings();
+    console.log("📋 Lancer settings:", settings);
+    return settings;
+  };
+
+  // Expose manual backend initialization
+  (window as any).lancerInitialize = async (walletAddress?: string) => {
+    if (walletAddress) {
+      console.log("🔧 Manual initialization with address:", walletAddress);
+      await lancerBackend.loadUserPositions(walletAddress);
+      lancerBackend.startPnLUpdates();
+      const positionCount = lancerBackend.getAllPositionsPnL().size;
+      console.log(`📊 Loaded ${positionCount} positions for ${walletAddress}`);
+    } else {
+      console.log("🔧 Manual initialization with auto-detection");
+      await initializeLancerBackend();
+    }
+  };
+
+  // Expose position count debugging
+  (window as any).lancerPositionCount = () => {
+    const positionCount = lancerBackend.getAllPositionsPnL().size;
+    console.log(`📊 Current position count: ${positionCount}`);
+    return positionCount;
+  };
 }
 
 // Verify we're on the right page
@@ -28,11 +63,13 @@ if (window.location.href.includes("v2.meteora.ag/portfolio")) {
 interface ExtensionSettings {
   rpcUrl: string;
   dammPoolAddresses: string[];
+  walletAddress: string;
 }
 
 const DEFAULT_SETTINGS: ExtensionSettings = {
   rpcUrl: "",
   dammPoolAddresses: [],
+  walletAddress: "",
 };
 
 class ExtensionStorage {
@@ -82,6 +119,15 @@ class ExtensionStorage {
 
   static async savePoolAddresses(poolAddresses: string[]): Promise<void> {
     await this.saveSettings({ dammPoolAddresses: poolAddresses });
+  }
+
+  static async getWalletAddress(): Promise<string> {
+    const settings = await this.getSettings();
+    return settings.walletAddress;
+  }
+
+  static async saveWalletAddress(walletAddress: string): Promise<void> {
+    await this.saveSettings({ walletAddress });
   }
 }
 
@@ -1035,6 +1081,11 @@ function addLancerToFooter(isRpcConfigured = false) {
   );
 }
 
+// Function to get wallet address from storage (no retries needed since it's just storage lookup)
+async function getConfiguredWalletAddress(): Promise<string | null> {
+  return await getWalletAddressFromStorage();
+}
+
 // Main initialization function
 async function initializeLancerBackend(): Promise<void> {
   try {
@@ -1050,106 +1101,108 @@ async function initializeLancerBackend(): Promise<void> {
       return;
     }
 
-    // Try to detect wallet address from the page
-    const walletAddress = detectWalletAddress();
+    console.log("✅ Lancer: Backend core initialization successful");
+
+    // Get wallet address from user configuration
+    const walletAddress = await getConfiguredWalletAddress();
 
     if (walletAddress) {
-      console.log(`🔍 Lancer: Detected wallet address: ${walletAddress}`);
+      console.log(
+        `🔍 Lancer: Using configured wallet address: ${walletAddress}`
+      );
 
-      // Load user positions from the blockchain
-      await lancerBackend.loadUserPositions(walletAddress);
+      try {
+        // Load user positions from the blockchain
+        console.log("📡 Lancer: Loading user positions from blockchain...");
+        await lancerBackend.loadUserPositions(walletAddress);
 
-      // Start automatic PnL updates
-      lancerBackend.startPnLUpdates();
+        // Start automatic PnL updates
+        lancerBackend.startPnLUpdates();
 
-      console.log("✅ Lancer: Backend fully initialized with positions");
-    } else {
-      console.warn("⚠️ Lancer: Could not detect wallet address from page");
+        console.log("✅ Lancer: Backend fully initialized with positions");
 
-      // Try to extract wallet from URL if this is a portfolio page
-      const urlParts = window.location.pathname.split("/");
-      const portfolioIndex = urlParts.indexOf("portfolio");
-      if (portfolioIndex !== -1 && urlParts[portfolioIndex + 1]) {
-        const urlWallet = urlParts[portfolioIndex + 1];
-        console.log(`🔍 Lancer: Trying wallet address from URL: ${urlWallet}`);
-
-        try {
-          await lancerBackend.loadUserPositions(urlWallet);
-          lancerBackend.startPnLUpdates();
-          console.log("✅ Lancer: Backend initialized with wallet from URL");
-        } catch (error) {
-          console.error(
-            "❌ Lancer: Failed to load positions from URL wallet:",
-            error
-          );
-        }
+        // Log the number of positions found
+        const positionCount = lancerBackend.getAllPositionsPnL().size;
+        console.log(
+          `📊 Lancer: Found ${positionCount} DAMM positions for wallet`
+        );
+      } catch (error) {
+        console.error("❌ Lancer: Error loading positions for wallet:", error);
       }
+    } else {
+      console.warn(
+        "⚠️ Lancer: No wallet address configured - user needs to set it in settings"
+      );
+      console.log(
+        "💡 Lancer: User can configure wallet address in extension popup"
+      );
+
+      // Set up a listener for wallet configuration changes
+      setupWalletConfigListener();
     }
   } catch (error) {
     console.error("❌ Lancer: Error initializing backend:", error);
   }
 }
 
-// Function to detect wallet address from the page
-function detectWalletAddress(): string | null {
+// Set up listener for wallet configuration changes
+function setupWalletConfigListener(): void {
+  console.log("🔗 Lancer: Setting up wallet configuration listener...");
+
+  // Listen for changes in wallet configuration
+  let lastWalletAddress: string | null = null;
+
+  const checkWalletPeriodically = async () => {
+    const currentAddress = await getWalletAddressFromStorage();
+
+    if (currentAddress && currentAddress !== lastWalletAddress) {
+      console.log("🔗 Lancer: New wallet configured:", currentAddress);
+      lastWalletAddress = currentAddress;
+
+      try {
+        await lancerBackend.loadUserPositions(currentAddress);
+        lancerBackend.startPnLUpdates();
+        console.log(
+          "✅ Lancer: Backend initialized with newly configured wallet"
+        );
+      } catch (error) {
+        console.error(
+          "❌ Lancer: Failed to load positions for newly configured wallet:",
+          error
+        );
+      }
+    }
+  };
+
+  // Check every 5 seconds for wallet configuration changes
+  setInterval(checkWalletPeriodically, 5000);
+}
+
+// Function to get wallet address from user storage
+async function getWalletAddressFromStorage(): Promise<string | null> {
   try {
-    // Look for wallet address in the URL
-    const urlMatch = window.location.pathname.match(
-      /\/portfolio\/([A-Za-z0-9]{32,44})/
-    );
-    if (urlMatch) {
-      return urlMatch[1];
+    console.log("🔍 Lancer: Checking for wallet address in storage...");
+    const settings = await ExtensionStorage.getSettings();
+    console.log("📋 Lancer: Retrieved settings:", {
+      hasRpcUrl: !!settings.rpcUrl,
+      hasWalletAddress: !!settings.walletAddress,
+      poolCount: settings.dammPoolAddresses.length,
+    });
+
+    const walletAddress = settings.walletAddress;
+
+    if (walletAddress && walletAddress.trim() !== "") {
+      console.log("✅ Lancer: Found wallet address in storage:", walletAddress);
+      return walletAddress;
     }
 
-    // Look for wallet address in the page content
-    const elements = document.querySelectorAll(
-      '[class*="wallet"], [class*="address"], [data-wallet]'
-    );
-    for (const element of elements) {
-      const text =
-        element.textContent || element.getAttribute("data-wallet") || "";
-      const addressMatch = text.match(/[A-Za-z0-9]{32,44}/);
-      if (addressMatch) {
-        return addressMatch[0];
-      }
-    }
-
-    // Check if there's a connected wallet in localStorage or sessionStorage
-    const storageKeys = [
-      "wallet",
-      "walletAddress",
-      "connectedWallet",
-      "phantom",
-      "solflare",
-    ];
-    for (const key of storageKeys) {
-      const stored = localStorage.getItem(key) || sessionStorage.getItem(key);
-      if (stored) {
-        try {
-          const parsed = JSON.parse(stored);
-          if (
-            typeof parsed === "string" &&
-            parsed.match(/[A-Za-z0-9]{32,44}/)
-          ) {
-            return parsed;
-          }
-          if (
-            parsed.publicKey &&
-            parsed.publicKey.match(/[A-Za-z0-9]{32,44}/)
-          ) {
-            return parsed.publicKey;
-          }
-        } catch {
-          // If parsing fails, try direct string match
-          const match = stored.match(/[A-Za-z0-9]{32,44}/);
-          if (match) return match[0];
-        }
-      }
-    }
-
+    console.log("❌ Lancer: No wallet address configured in storage");
     return null;
   } catch (error) {
-    console.error("Error detecting wallet address:", error);
+    console.error(
+      "❌ Lancer: Error getting wallet address from storage:",
+      error
+    );
     return null;
   }
 }

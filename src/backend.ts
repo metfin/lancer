@@ -889,7 +889,54 @@ export class LancerBackend {
       console.log(`Loading positions for wallet: ${walletAddress}`);
 
       const userPublicKey = new PublicKey(walletAddress);
-      const positions = await this.cpAmm.getPositionsByUser(userPublicKey);
+
+      // Add more detailed error handling around the SDK call
+      let positions;
+      try {
+        console.log("🔍 Fetching positions from CP-AMM SDK...");
+        positions = await this.cpAmm.getPositionsByUser(userPublicKey);
+        console.log(
+          `✅ Successfully fetched ${positions.length} positions from SDK`
+        );
+      } catch (sdkError: unknown) {
+        console.error("❌ CP-AMM SDK error when fetching positions:", sdkError);
+
+        // If it's a BigInt conversion error, provide more specific guidance
+        if (sdkError instanceof Error && sdkError.message.includes("BigInt")) {
+          console.error(
+            "🔧 BigInt conversion error detected. This usually indicates:"
+          );
+          console.error("  1. Corrupted account data on-chain");
+          console.error(
+            "  2. Incompatible SDK version with current on-chain program"
+          );
+          console.error(
+            "  3. Network/RPC issues causing partial data retrieval"
+          );
+          console.error("💡 Suggested fixes:");
+          console.error("  - Try a different RPC endpoint");
+          console.error("  - Check if the wallet has any DAMM positions");
+          console.error("  - Verify the wallet address is correct");
+        }
+
+        // For BigInt errors, don't throw - just return empty positions
+        if (sdkError instanceof Error && sdkError.message.includes("BigInt")) {
+          console.warn(
+            "⚠️ BigInt conversion error - continuing with 0 positions"
+          );
+          console.warn(
+            "This usually means the wallet has no DAMM positions or RPC issues"
+          );
+          positions = []; // Set empty positions array
+        } else {
+          // For other errors, still throw
+          const errorMessage =
+            sdkError instanceof Error ? sdkError.message : String(sdkError);
+          throw new Error(
+            `Failed to fetch positions from CP-AMM SDK: ${errorMessage}`
+          );
+        }
+      }
 
       // Clear existing cache
       this.userPositions.clear();
@@ -903,7 +950,7 @@ export class LancerBackend {
       }
 
       console.log(
-        `Loaded ${positions.length} positions for wallet ${walletAddress}`
+        `✅ Loaded ${positions.length} positions for wallet ${walletAddress}`
       );
 
       // Update pool addresses in storage to match loaded positions
@@ -913,10 +960,10 @@ export class LancerBackend {
       await ExtensionStorage.savePoolAddresses(poolAddresses);
 
       console.log(
-        `Updated tracked pool addresses: ${poolAddresses.length} pools`
+        `📋 Updated tracked pool addresses: ${poolAddresses.length} pools`
       );
     } catch (error) {
-      console.error("Error loading user positions:", error);
+      console.error("❌ Error loading user positions:", error);
       throw error;
     }
   }

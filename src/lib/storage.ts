@@ -1,11 +1,13 @@
 export interface ExtensionSettings {
   rpcUrl: string;
   dammPoolAddresses: string[];
+  walletAddress: string;
 }
 
 const DEFAULT_SETTINGS: ExtensionSettings = {
   rpcUrl: "",
   dammPoolAddresses: [],
+  walletAddress: "",
 };
 
 export class ExtensionStorage {
@@ -87,5 +89,19 @@ export class ExtensionStorage {
 
   static async clearPoolAddresses(): Promise<void> {
     await this.savePoolAddresses([]);
+  }
+
+  // Wallet Address Management Methods
+  static async getWalletAddress(): Promise<string> {
+    const settings = await this.getSettings();
+    return settings.walletAddress;
+  }
+
+  static async saveWalletAddress(walletAddress: string): Promise<void> {
+    await this.saveSettings({ walletAddress });
+  }
+
+  static async clearWalletAddress(): Promise<void> {
+    await this.saveWalletAddress("");
   }
 }
