@@ -26,6 +26,8 @@ export default defineConfig({
         },
       },
     },
+    target: "es2015",
+    minify: false,
   },
   define: {
     global: "globalThis",

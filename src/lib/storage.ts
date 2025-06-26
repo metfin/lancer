@@ -1,9 +1,11 @@
 export interface ExtensionSettings {
   rpcUrl: string;
+  dammPoolAddresses: string[];
 }
 
 const DEFAULT_SETTINGS: ExtensionSettings = {
   rpcUrl: "",
+  dammPoolAddresses: [],
 };
 
 export class ExtensionStorage {
@@ -57,5 +59,33 @@ export class ExtensionStorage {
       console.error("Failed to clear settings:", error);
       throw error;
     }
+  }
+
+  // DAMM Pool Management Methods
+  static async getPoolAddresses(): Promise<string[]> {
+    const settings = await this.getSettings();
+    return settings.dammPoolAddresses;
+  }
+
+  static async savePoolAddresses(poolAddresses: string[]): Promise<void> {
+    await this.saveSettings({ dammPoolAddresses: poolAddresses });
+  }
+
+  static async addPoolAddress(poolAddress: string): Promise<void> {
+    const currentPools = await this.getPoolAddresses();
+    if (!currentPools.includes(poolAddress)) {
+      const updatedPools = [...currentPools, poolAddress];
+      await this.savePoolAddresses(updatedPools);
+    }
+  }
+
+  static async removePoolAddress(poolAddress: string): Promise<void> {
+    const currentPools = await this.getPoolAddresses();
+    const updatedPools = currentPools.filter((pool) => pool !== poolAddress);
+    await this.savePoolAddresses(updatedPools);
+  }
+
+  static async clearPoolAddresses(): Promise<void> {
+    await this.savePoolAddresses([]);
   }
 }
