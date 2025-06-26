@@ -16,14 +16,9 @@ export default defineConfig({
     rollupOptions: {
       input: {
         popup: path.resolve(__dirname, "popup.html"),
-        content: path.resolve(__dirname, "src/content.ts"),
       },
       output: {
-        entryFileNames: (chunkInfo) => {
-          return chunkInfo.name === "content"
-            ? "[name].js"
-            : "assets/[name]-[hash].js";
-        },
+        entryFileNames: "assets/[name]-[hash].js",
       },
     },
     target: "es2015",

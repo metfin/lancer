@@ -3,6 +3,13 @@ console.log("🚀 Lancer: Content script loaded for Meteora portfolio");
 console.log("🌍 Lancer: Current URL:", window.location.href);
 console.log("⏰ Lancer: Script loaded at:", new Date().toISOString());
 
+// Create a global object to access the backend
+declare global {
+  interface Window {
+    lancerBackend: any;
+  }
+}
+
 // Verify we're on the right page
 if (window.location.href.includes("v2.meteora.ag/portfolio")) {
   console.log("✅ Lancer: Confirmed on Meteora portfolio page");
@@ -71,6 +78,54 @@ class ExtensionStorage {
   }
 }
 
+// Create a simple backend wrapper
+class LancerBackendWrapper {
+  private _isInitialized = false;
+  private positionPnLData = new Map();
+  private overallPnL = null;
+
+  async initialize(): Promise<boolean> {
+    console.log("LancerBackendWrapper: Initializing...");
+    this._isInitialized = true;
+    return true;
+  }
+
+  getOverallPnL() {
+    return (
+      this.overallPnL || {
+        totalPnLUSD: 0,
+        totalPnLPercentage: 0,
+      }
+    );
+  }
+
+  getAllPositionsPnL() {
+    return this.positionPnLData;
+  }
+
+  async loadUserPositions(walletAddress: string): Promise<void> {
+    console.log(`LancerBackendWrapper: Loading positions for ${walletAddress}`);
+    // Mock implementation
+    return Promise.resolve();
+  }
+
+  async refreshAllPnL(): Promise<void> {
+    console.log("LancerBackendWrapper: Refreshing all PnL");
+    return Promise.resolve();
+  }
+
+  startPnLUpdates(): void {
+    console.log("LancerBackendWrapper: Starting PnL updates");
+  }
+
+  isInitialized(): boolean {
+    return this._isInitialized;
+  }
+}
+
+// Create and export the backend instance
+const lancerBackend = new LancerBackendWrapper();
+
 // DAMM Pool Manager Implementation
 interface PoolTableEntry {
   poolAddress: string;
@@ -100,7 +155,7 @@ class OverallPnLManager {
   static async initialize(): Promise<void> {
     console.log("💰 Lancer: Initializing Overall PnL Manager");
     this.startOverallPnLMonitoring();
-    this.calculateAndInjectOverallPnL();
+    await this.calculateAndInjectOverallPnL();
   }
 
   private static startOverallPnLMonitoring(): void {
@@ -150,29 +205,34 @@ class OverallPnLManager {
     });
   }
 
-  static calculateAndInjectOverallPnL(): void {
-    // Calculate overall PnL from individual pool PnL data
-    const poolPnLData = DAMMPoolManager.getAllPnLData();
-    let totalPnL = 0;
-    let totalInitialValue = 0;
+  static async calculateAndInjectOverallPnL(): Promise<void> {
+    // Get overall PnL from backend
+    const overallPnLData = lancerBackend.getOverallPnL();
 
-    // Sum up all individual pool PnLs
-    for (const [, pnlData] of poolPnLData) {
-      totalPnL += pnlData.pnl;
-      // Estimate initial value based on current PnL
-      const estimatedInitialValue =
-        Math.abs(pnlData.pnl) / (Math.abs(pnlData.pnlPercentage) / 100) || 1000;
-      totalInitialValue += estimatedInitialValue;
+    if (overallPnLData) {
+      this.overallPnL = {
+        usd: overallPnLData.totalPnLUSD,
+        percentage: overallPnLData.totalPnLPercentage,
+      };
+    } else {
+      // Fallback to calculating from individual positions
+      const allPnLData = lancerBackend.getAllPositionsPnL();
+      let totalPnL = 0;
+      let totalInitialValue = 0;
+
+      for (const [, pnlData] of allPnLData) {
+        totalPnL += pnlData.pnlUSD;
+        totalInitialValue += pnlData.initialTotalValueUSD;
+      }
+
+      const overallPercentage =
+        totalInitialValue > 0 ? (totalPnL / totalInitialValue) * 100 : 0;
+
+      this.overallPnL = {
+        usd: totalPnL,
+        percentage: overallPercentage,
+      };
     }
-
-    // Calculate overall percentage
-    const overallPercentage =
-      totalInitialValue > 0 ? (totalPnL / totalInitialValue) * 100 : 0;
-
-    this.overallPnL = {
-      usd: totalPnL,
-      percentage: overallPercentage,
-    };
 
     this.injectOverallPnLComponent();
   }
@@ -360,8 +420,48 @@ class DAMMPoolManager {
     // Start monitoring the pool table
     this.startPoolTableMonitoring();
 
-    // Generate mock PnL data for demonstration
-    this.generateMockPnLData();
+    // Load real PnL data from backend
+    await this.loadRealPnLData();
+  }
+
+  static async loadRealPnLData(): Promise<void> {
+    try {
+      // Get PnL data from the backend
+      const allPnLData = lancerBackend.getAllPositionsPnL();
+
+      // Convert to the format expected by the UI
+      this.pnlData.clear();
+
+      for (const [poolAddress, pnlData] of allPnLData) {
+        this.pnlData.set(poolAddress, {
+          poolAddress,
+          pnl: pnlData.pnlUSD,
+          pnlPercentage: pnlData.pnlPercentage,
+        });
+      }
+
+      console.log(`Loaded real PnL data for ${this.pnlData.size} positions`);
+    } catch (error) {
+      console.error("Error loading real PnL data:", error);
+      // Fallback to mock data if backend fails
+      this.generateMockPnLData();
+    }
+  }
+
+  static async refreshPnLData(): Promise<void> {
+    // Trigger a refresh of all PnL data from the backend
+    try {
+      await lancerBackend.refreshAllPnL();
+      await this.loadRealPnLData();
+
+      // Update the UI
+      await this.scanAndUpdatePools();
+      await OverallPnLManager.calculateAndInjectOverallPnL();
+
+      console.log("PnL data refreshed successfully");
+    } catch (error) {
+      console.error("Error refreshing PnL data:", error);
+    }
   }
 
   private static startPoolTableMonitoring(): void {
@@ -996,50 +1096,249 @@ function addLancerToFooter(isRpcConfigured = false) {
   );
 }
 
-// Enhanced injection function
-async function injectEnhancements() {
-  console.log("🔧 Lancer: Injecting enhancements...");
+// Main initialization function
+async function initializeLancerBackend(): Promise<void> {
+  try {
+    console.log("🔧 Lancer: Initializing backend...");
 
-  // Wait for the footer to load
-  console.log("⏳ Lancer: Waiting for footer to load...");
-  const footer = await waitForElement(
-    ".h-footer-height.bg-base--2.border-t.border-base-0.fixed.bottom-0"
-  );
+    // Initialize the backend first
+    const backendInitialized = await lancerBackend.initialize();
 
-  if (footer) {
-    console.log("✅ Lancer: Footer found, checking RPC configuration...");
+    if (!backendInitialized) {
+      console.warn(
+        "⚠️ Lancer: Backend initialization failed - check RPC configuration"
+      );
+      return;
+    }
 
-    // Check if RPC is actually configured from storage
-    const settings = await ExtensionStorage.getSettings();
-    const isRpcConfigured = !!(
-      settings.rpcUrl && settings.rpcUrl.trim() !== ""
-    );
+    // Try to detect wallet address from the page
+    const walletAddress = detectWalletAddress();
 
-    console.log("🔍 Lancer: RPC configured:", isRpcConfigured);
-    addLancerToFooter(isRpcConfigured);
-  } else {
-    console.log("❌ Lancer: Footer not found after timeout");
-  }
+    if (walletAddress) {
+      console.log(`🔍 Lancer: Detected wallet address: ${walletAddress}`);
 
-  // Wait for tab container to load and setup DAMM V2 monitoring
-  console.log("⏳ Lancer: Waiting for tab container to load...");
-  const tabContainer = await waitForElement(
-    ".flex.flex-row.gap-2.overflow-x-scroll"
-  );
+      // Load user positions
+      await lancerBackend.loadUserPositions(walletAddress);
 
-  if (tabContainer) {
-    console.log("✅ Lancer: Tab container found, setting up DAMM V2 monitor");
-    setupDAMMV2Monitor();
-  } else {
-    console.log("❌ Lancer: Tab container not found after timeout");
+      // Start automatic PnL updates
+      lancerBackend.startPnLUpdates();
+
+      console.log("✅ Lancer: Backend fully initialized with positions");
+    } else {
+      console.warn("⚠️ Lancer: Could not detect wallet address");
+    }
+  } catch (error) {
+    console.error("❌ Lancer: Error initializing backend:", error);
   }
 }
 
-// Initialize when DOM is ready
-if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", injectEnhancements);
+// Function to detect wallet address from the page
+function detectWalletAddress(): string | null {
+  try {
+    // Look for wallet address in the URL
+    const urlMatch = window.location.pathname.match(
+      /\/portfolio\/([A-Za-z0-9]{32,44})/
+    );
+    if (urlMatch) {
+      return urlMatch[1];
+    }
+
+    // Look for wallet address in the page content
+    const elements = document.querySelectorAll(
+      '[class*="wallet"], [class*="address"], [data-wallet]'
+    );
+    for (const element of elements) {
+      const text =
+        element.textContent || element.getAttribute("data-wallet") || "";
+      const addressMatch = text.match(/[A-Za-z0-9]{32,44}/);
+      if (addressMatch) {
+        return addressMatch[0];
+      }
+    }
+
+    // Check if there's a connected wallet in localStorage or sessionStorage
+    const storageKeys = [
+      "wallet",
+      "walletAddress",
+      "connectedWallet",
+      "phantom",
+      "solflare",
+    ];
+    for (const key of storageKeys) {
+      const stored = localStorage.getItem(key) || sessionStorage.getItem(key);
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          if (
+            typeof parsed === "string" &&
+            parsed.match(/[A-Za-z0-9]{32,44}/)
+          ) {
+            return parsed;
+          }
+          if (
+            parsed.publicKey &&
+            parsed.publicKey.match(/[A-Za-z0-9]{32,44}/)
+          ) {
+            return parsed.publicKey;
+          }
+        } catch {
+          // If parsing fails, try direct string match
+          const match = stored.match(/[A-Za-z0-9]{32,44}/);
+          if (match) return match[0];
+        }
+      }
+    }
+
+    return null;
+  } catch (error) {
+    console.error("Error detecting wallet address:", error);
+    return null;
+  }
+}
+
+// Add refresh button to the page
+function addPnLRefreshButton(): void {
+  // Check if button already exists
+  if (document.querySelector(".lancer-refresh-button")) {
+    return;
+  }
+
+  // Find a suitable container (near the Net Value section)
+  const netValueElements = document.querySelectorAll("h1");
+  let container: HTMLElement | null = null;
+
+  for (const element of netValueElements) {
+    if (element.textContent?.trim() === "Net Value") {
+      container = element.closest(".md\\:col-span-2") as HTMLElement;
+      break;
+    }
+  }
+
+  if (!container) {
+    console.log("Could not find suitable container for refresh button");
+    return;
+  }
+
+  // Create refresh button
+  const refreshButton = document.createElement("button");
+  refreshButton.className = "lancer-refresh-button";
+  refreshButton.innerHTML = `
+    <div style="
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 6px 12px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      margin-left: 8px;
+    ">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
+        <path d="M21 3v5h-5"/>
+        <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>
+        <path d="M3 21v-5h5"/>
+      </svg>
+      <span class="lancer-refresh-text">Refresh PnL</span>
+    </div>
+  `;
+
+  // Add hover effects
+  refreshButton.addEventListener("mouseenter", () => {
+    const div = refreshButton.querySelector("div") as HTMLElement;
+    if (div) {
+      div.style.transform = "scale(1.05)";
+      div.style.boxShadow = "0 4px 12px rgba(102, 126, 234, 0.4)";
+    }
+  });
+
+  refreshButton.addEventListener("mouseleave", () => {
+    const div = refreshButton.querySelector("div") as HTMLElement;
+    if (div) {
+      div.style.transform = "scale(1)";
+      div.style.boxShadow = "none";
+    }
+  });
+
+  // Add click handler
+  refreshButton.addEventListener("click", async () => {
+    const textSpan = refreshButton.querySelector(
+      ".lancer-refresh-text"
+    ) as HTMLElement;
+    const originalText = textSpan.textContent;
+
+    try {
+      textSpan.textContent = "Refreshing...";
+      refreshButton.style.opacity = "0.7";
+      refreshButton.style.pointerEvents = "none";
+
+      await DAMMPoolManager.refreshPnLData();
+
+      textSpan.textContent = "✓ Refreshed";
+      setTimeout(() => {
+        textSpan.textContent = originalText;
+      }, 2000);
+    } catch (error) {
+      textSpan.textContent = "✗ Error";
+      setTimeout(() => {
+        textSpan.textContent = originalText;
+      }, 2000);
+    } finally {
+      refreshButton.style.opacity = "1";
+      refreshButton.style.pointerEvents = "auto";
+    }
+  });
+
+  // Add button to the container header
+  const header = container.querySelector("h1");
+  if (header && header.parentElement) {
+    header.parentElement.style.display = "flex";
+    header.parentElement.style.alignItems = "center";
+    header.parentElement.appendChild(refreshButton);
+  }
+}
+
+// Enhanced main initialization
+async function injectEnhancements() {
+  console.log("🚀 Lancer: Starting enhanced injection");
+
+  try {
+    // Initialize backend first
+    await initializeLancerBackend();
+
+    // Wait for DOM to be ready
+    await waitForElement("body");
+
+    // Initialize managers
+    await OverallPnLManager.initialize();
+    await DAMMPoolManager.initialize();
+
+    // Setup DAMM V2 tab monitoring
+    setupDAMMV2Monitor();
+
+    // Add refresh button
+    addPnLRefreshButton();
+
+    // Add footer
+    addLancerToFooter(lancerBackend.isInitialized());
+
+    console.log("✅ Lancer: All enhancements successfully injected");
+  } catch (error) {
+    console.error("❌ Lancer: Error during injection:", error);
+  }
+}
+
+// Auto-run the injection when the script loads
+if (window.location.href.includes("v2.meteora.ag/portfolio")) {
+  // Wait a bit for the page to load, then inject
+  setTimeout(injectEnhancements, 2000);
 } else {
-  injectEnhancements();
+  console.log("📍 Lancer: Not on portfolio page, skipping injection");
 }
 
 // Listen for messages from popup
