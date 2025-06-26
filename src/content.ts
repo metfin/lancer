@@ -43,6 +43,118 @@ function waitForElement(
   });
 }
 
+// Function to detect and handle DAMM V2 tab activation
+function handleDAMMV2Activation() {
+  console.log("🎯 Lancer: DAMM V2 tab activated!");
+
+  // Add your custom code here for when DAMM V2 tab is active
+  // This is where you can add any logic you want to execute
+  // when the user switches to the DAMM V2 tab
+
+  // Example: You could inject additional UI elements, start monitoring, etc.
+  console.log("⚡ Lancer: Executing DAMM V2 specific functionality...");
+}
+
+// Function to find and monitor DAMM V2 tab
+function setupDAMMV2Monitor() {
+  // Look for the DAMM V2 button (contains "DAMM" text and "V2" badge)
+  const findDAMMV2Button = () => {
+    const buttons = document.querySelectorAll(
+      'button[title="Apply filter"], button[title="Remove filter"]'
+    );
+
+    for (const button of buttons) {
+      // Check if this button contains DAMM text and V2 badge
+      const spans = button.querySelectorAll("span");
+      const hasDAMM = Array.from(spans).some(
+        (span) => span.textContent?.trim() === "DAMM"
+      );
+      const hasV2Badge = button.querySelector(".bg-primary-tint-200");
+
+      if (hasDAMM && hasV2Badge) {
+        return button as HTMLButtonElement;
+      }
+    }
+    return null;
+  };
+
+  // Check if DAMM V2 is currently active
+  const checkDAMMV2Active = () => {
+    const dammV2Button = findDAMMV2Button();
+    if (!dammV2Button) return false;
+
+    // Active tab has "bg-base-2 text-text-primary" classes
+    // Inactive tab has "bg-base-0 text-text-tertiary" classes
+    return (
+      dammV2Button.classList.contains("bg-base-2") &&
+      dammV2Button.classList.contains("text-text-primary")
+    );
+  };
+
+  // Add click listener to DAMM V2 button
+  const addClickListener = () => {
+    const dammV2Button = findDAMMV2Button();
+    if (dammV2Button) {
+      console.log("✅ Lancer: Found DAMM V2 button, adding click listener");
+
+      dammV2Button.addEventListener("click", () => {
+        console.log("🔘 Lancer: DAMM V2 button clicked");
+
+        // Use a small delay to ensure the tab state has changed
+        setTimeout(() => {
+          if (checkDAMMV2Active()) {
+            handleDAMMV2Activation();
+          }
+        }, 100);
+      });
+    } else {
+      console.log("❌ Lancer: DAMM V2 button not found");
+    }
+  };
+
+  // Monitor for tab state changes using MutationObserver
+  const setupTabMonitor = () => {
+    let wasDAMMV2Active = checkDAMMV2Active();
+
+    // If DAMM V2 is already active on page load
+    if (wasDAMMV2Active) {
+      console.log("🎯 Lancer: DAMM V2 already active on page load");
+      handleDAMMV2Activation();
+    }
+
+    const observer = new MutationObserver(() => {
+      const isDAMMV2Active = checkDAMMV2Active();
+
+      // Check if state changed from inactive to active
+      if (!wasDAMMV2Active && isDAMMV2Active) {
+        handleDAMMV2Activation();
+      }
+
+      wasDAMMV2Active = isDAMMV2Active;
+    });
+
+    // Observe changes to the tab container
+    const tabContainer = document.querySelector(
+      ".flex.flex-row.gap-2.overflow-x-scroll"
+    );
+    if (tabContainer) {
+      observer.observe(tabContainer, {
+        attributes: true,
+        attributeFilter: ["class"],
+        subtree: true,
+        childList: true,
+      });
+      console.log("✅ Lancer: Tab monitor setup complete");
+    } else {
+      console.log("❌ Lancer: Tab container not found for monitoring");
+    }
+  };
+
+  // Setup both click listener and mutation observer
+  addClickListener();
+  setupTabMonitor();
+}
+
 // Function to add Lancer status to Meteora's footer
 function addLancerToFooter(isRpcConfigured = false) {
   const footer = document.querySelector(
@@ -122,6 +234,19 @@ async function injectEnhancements() {
     addLancerToFooter(false); // Start with not configured status
   } else {
     console.log("❌ Lancer: Footer not found after timeout");
+  }
+
+  // Wait for tab container to load and setup DAMM V2 monitoring
+  console.log("⏳ Lancer: Waiting for tab container to load...");
+  const tabContainer = await waitForElement(
+    ".flex.flex-row.gap-2.overflow-x-scroll"
+  );
+
+  if (tabContainer) {
+    console.log("✅ Lancer: Tab container found, setting up DAMM V2 monitor");
+    setupDAMMV2Monitor();
+  } else {
+    console.log("❌ Lancer: Tab container not found after timeout");
   }
 }
 
