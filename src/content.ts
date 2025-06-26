@@ -88,6 +88,261 @@ interface PositionPnL {
   pnlPercentage: number;
 }
 
+// Overall PNL Manager
+class OverallPnLManager {
+  private static pnlObserver: MutationObserver | null = null;
+  private static isOverallPnLInjected: boolean = false;
+  private static overallPnL: { usd: number; percentage: number } = {
+    usd: 0,
+    percentage: 0,
+  };
+
+  static async initialize(): Promise<void> {
+    console.log("💰 Lancer: Initializing Overall PnL Manager");
+    this.startOverallPnLMonitoring();
+    this.calculateAndInjectOverallPnL();
+  }
+
+  private static startOverallPnLMonitoring(): void {
+    // Find the portfolio stats container
+    const findStatsContainer = (): HTMLElement | null => {
+      // Look for the Net Value component's parent container
+      const netValueElements = document.querySelectorAll("h1");
+      for (const element of netValueElements) {
+        if (element.textContent?.trim() === "Net Value") {
+          const container = element.closest(".md\\:col-span-2");
+          if (container) {
+            return container.parentElement as HTMLElement;
+          }
+        }
+      }
+      return null;
+    };
+
+    const statsContainer = findStatsContainer();
+    if (!statsContainer) {
+      console.log("❌ Lancer: Portfolio stats container not found");
+      return;
+    }
+
+    console.log(
+      "✅ Lancer: Found portfolio stats container, starting monitoring"
+    );
+
+    // Set up mutation observer to watch for container changes
+    this.pnlObserver = new MutationObserver((mutations) => {
+      // Check if we need to re-inject the PnL component
+      const hasRelevantChanges = mutations.some((mutation) => {
+        return (
+          mutation.type === "childList" &&
+          (mutation.addedNodes.length > 0 || mutation.removedNodes.length > 0)
+        );
+      });
+
+      if (hasRelevantChanges && !this.isOverallPnLInjected) {
+        this.calculateAndInjectOverallPnL();
+      }
+    });
+
+    this.pnlObserver.observe(statsContainer, {
+      childList: true,
+      subtree: true,
+    });
+  }
+
+  static calculateAndInjectOverallPnL(): void {
+    // Calculate overall PnL from individual pool PnL data
+    const poolPnLData = DAMMPoolManager.getAllPnLData();
+    let totalPnL = 0;
+    let totalInitialValue = 0;
+
+    // Sum up all individual pool PnLs
+    for (const [, pnlData] of poolPnLData) {
+      totalPnL += pnlData.pnl;
+      // Estimate initial value based on current PnL
+      const estimatedInitialValue =
+        Math.abs(pnlData.pnl) / (Math.abs(pnlData.pnlPercentage) / 100) || 1000;
+      totalInitialValue += estimatedInitialValue;
+    }
+
+    // Calculate overall percentage
+    const overallPercentage =
+      totalInitialValue > 0 ? (totalPnL / totalInitialValue) * 100 : 0;
+
+    this.overallPnL = {
+      usd: totalPnL,
+      percentage: overallPercentage,
+    };
+
+    this.injectOverallPnLComponent();
+  }
+
+  private static injectOverallPnLComponent(): void {
+    // Find the Net Value component
+    const netValueElements = document.querySelectorAll("h1");
+    let netValueContainer: HTMLElement | null = null;
+
+    for (const element of netValueElements) {
+      if (element.textContent?.trim() === "Net Value") {
+        netValueContainer = element.closest(".md\\:col-span-2") as HTMLElement;
+        break;
+      }
+    }
+
+    if (!netValueContainer) {
+      console.log("❌ Lancer: Net Value container not found");
+      return;
+    }
+
+    // Check if Overall PnL component already exists in the Net Value card
+    const existingPnL = netValueContainer.querySelector(
+      ".lancer-overall-pnl-section"
+    );
+    if (existingPnL) {
+      // Update existing component
+      this.updateOverallPnLInNetValue(netValueContainer);
+      return;
+    }
+
+    // Inject PnL into the existing Net Value card
+    this.addOverallPnLToNetValue(netValueContainer);
+
+    this.isOverallPnLInjected = true;
+    console.log(
+      "💰 Lancer: Overall PnL added to Net Value component successfully"
+    );
+  }
+
+  private static addOverallPnLToNetValue(netValueContainer: HTMLElement): void {
+    const { usd, percentage } = this.overallPnL;
+    const isPositive = usd >= 0;
+
+    // Find the stats section (after the hr element)
+    const statsSection = netValueContainer.querySelector(
+      ".flex.flex-row.gap-2"
+    );
+    if (!statsSection) {
+      console.log("❌ Lancer: Stats section not found in Net Value component");
+      return;
+    }
+
+    // Create Overall PnL stat item
+    const pnlStatDiv = document.createElement("div");
+    pnlStatDiv.className =
+      "flex flex-col gap-2 md:gap-3 lancer-overall-pnl-section";
+
+    // Create label
+    const labelDiv = document.createElement("div");
+    labelDiv.className =
+      "text-xs md:text-sm font-medium text-text-tertiary whitespace-nowrap";
+    labelDiv.textContent = "Overall PnL";
+
+    // Create value container
+    const valueDiv = document.createElement("div");
+    valueDiv.className = "text-xsm md:text-xl font-semibold text-text-primary";
+
+    // Create dollar value
+    const dollarValueContainer = document.createElement("div");
+    dollarValueContainer.className =
+      "flex flex-rows items-center whitespace-nowrap";
+
+    const dollarSign = document.createElement("span");
+    dollarSign.textContent = "$";
+
+    const dollarValue = document.createElement("span");
+    dollarValue.className = `lancer-pnl-usd ${
+      isPositive ? "text-success-primary" : "text-danger-primary"
+    }`;
+    dollarValue.textContent = `${isPositive ? "+" : ""}${Math.abs(usd).toFixed(
+      2
+    )}`;
+
+    dollarValueContainer.appendChild(dollarSign);
+    dollarValueContainer.appendChild(dollarValue);
+
+    // Create percentage value (smaller text below dollar value)
+    const percentageDiv = document.createElement("div");
+    percentageDiv.className = `text-xs font-medium lancer-pnl-percent ${
+      isPositive ? "text-success-primary" : "text-danger-primary"
+    }`;
+    percentageDiv.textContent = `${
+      percentage >= 0 ? "+" : ""
+    }${percentage.toFixed(2)}%`;
+
+    // Assemble the PnL stat
+    valueDiv.appendChild(dollarValueContainer);
+    valueDiv.appendChild(percentageDiv);
+    pnlStatDiv.appendChild(labelDiv);
+    pnlStatDiv.appendChild(valueDiv);
+
+    // Insert the PnL stat at the end of the stats section
+    statsSection.appendChild(pnlStatDiv);
+
+    console.log("💰 Lancer: Overall PnL added to Net Value stats section");
+  }
+
+  private static updateOverallPnLInNetValue(
+    netValueContainer: HTMLElement
+  ): void {
+    const { usd, percentage } = this.overallPnL;
+    const isPositive = usd >= 0;
+
+    // Find the PnL section
+    const pnlSection = netValueContainer.querySelector(
+      ".lancer-overall-pnl-section"
+    );
+    if (!pnlSection) {
+      // If section doesn't exist, add it
+      this.addOverallPnLToNetValue(netValueContainer);
+      return;
+    }
+
+    // Update dollar value
+    const dollarValue = pnlSection.querySelector(".lancer-pnl-usd");
+    if (dollarValue) {
+      dollarValue.className = `lancer-pnl-usd ${
+        isPositive ? "text-green-500" : "text-red-500"
+      }`;
+      dollarValue.textContent = `${isPositive ? "+" : ""}${Math.abs(
+        usd
+      ).toFixed(2)}`;
+    }
+
+    // Update percentage value
+    const percentageElement = pnlSection.querySelector(".lancer-pnl-percent");
+    if (percentageElement) {
+      percentageElement.className = `text-xs font-medium lancer-pnl-percent ${
+        isPositive ? "text-green-400" : "text-red-400"
+      }`;
+      percentageElement.textContent = `${
+        percentage >= 0 ? "+" : ""
+      }${percentage.toFixed(2)}%`;
+    }
+
+    console.log("💰 Lancer: Overall PnL in Net Value component updated");
+  }
+
+  static getOverallPnL(): { usd: number; percentage: number } {
+    return this.overallPnL;
+  }
+
+  static cleanup(): void {
+    if (this.pnlObserver) {
+      this.pnlObserver.disconnect();
+      this.pnlObserver = null;
+    }
+
+    // Remove any injected PnL sections
+    const existingPnLSections = document.querySelectorAll(
+      ".lancer-overall-pnl-section"
+    );
+    existingPnLSections.forEach((section) => section.remove());
+
+    this.isOverallPnLInjected = false;
+    this.overallPnL = { usd: 0, percentage: 0 };
+  }
+}
+
 class DAMMPoolManager {
   private static poolTableObserver: MutationObserver | null = null;
   private static currentPoolAddresses: Set<string> = new Set();
@@ -231,6 +486,9 @@ class DAMMPoolManager {
       if (poolEntries.length > 0) {
         this.injectPnLIntoTable(poolEntries);
       }
+
+      // Update overall PnL whenever pool data changes
+      OverallPnLManager.calculateAndInjectOverallPnL();
     } catch (error) {
       console.error("❌ Lancer: Error in scanAndUpdatePools:", error);
     } finally {
@@ -468,6 +726,10 @@ class DAMMPoolManager {
     return Array.from(this.currentPoolAddresses);
   }
 
+  static getAllPnLData(): Map<string, PositionPnL> {
+    return this.pnlData;
+  }
+
   static cleanup(): void {
     if (this.poolTableObserver) {
       this.poolTableObserver.disconnect();
@@ -529,6 +791,9 @@ async function handleDAMMV2Activation() {
       // Initialize the DAMM pool manager
       await DAMMPoolManager.initialize();
 
+      // Initialize the Overall PnL manager
+      await OverallPnLManager.initialize();
+
       // Add PnL header to the table
       DAMMPoolManager.addPnLHeader();
 
@@ -552,6 +817,7 @@ async function handleDAMMV2Activation() {
 function handleDAMMV2Deactivation() {
   console.log("🔄 Lancer: DAMM V2 tab deactivated, cleaning up");
   DAMMPoolManager.cleanup();
+  OverallPnLManager.cleanup();
 }
 
 // Function to find and monitor DAMM V2 tab
@@ -741,8 +1007,16 @@ async function injectEnhancements() {
   );
 
   if (footer) {
-    console.log("✅ Lancer: Footer found, adding Lancer entry");
-    addLancerToFooter(false); // Start with not configured status
+    console.log("✅ Lancer: Footer found, checking RPC configuration...");
+
+    // Check if RPC is actually configured from storage
+    const settings = await ExtensionStorage.getSettings();
+    const isRpcConfigured = !!(
+      settings.rpcUrl && settings.rpcUrl.trim() !== ""
+    );
+
+    console.log("🔍 Lancer: RPC configured:", isRpcConfigured);
+    addLancerToFooter(isRpcConfigured);
   } else {
     console.log("❌ Lancer: Footer not found after timeout");
   }
