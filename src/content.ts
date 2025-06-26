@@ -240,7 +240,6 @@ class DAMMPoolManager {
         const pnlColumn = document.createElement("div");
         pnlColumn.className =
           "pr-1 flex text-end justify-end lancer-pnl-column";
-        pnlColumn.style.gridColumn = "2 / 3"; // Insert between Pools and Your Deposits
 
         // Create PnL content
         const pnlContent = document.createElement("div");
@@ -268,23 +267,25 @@ class DAMMPoolManager {
         pnlContent.appendChild(pnlPercent);
         pnlColumn.appendChild(pnlContent);
 
-        // Insert the PnL column
-        const firstColumn = gridContainer.querySelector(
+        // Find the pools column and insert PnL after it
+        const poolsColumn = gridContainer.querySelector(
           '[style*="grid-column: 1 / 4"]'
         );
-        if (firstColumn && firstColumn.parentNode) {
-          firstColumn.parentNode.insertBefore(
-            pnlColumn,
-            firstColumn.nextSibling
-          );
-        }
+        const otherColumns = Array.from(gridContainer.children).filter(
+          (child) =>
+            child !== poolsColumn &&
+            !child.classList.contains("lancer-pnl-column")
+        );
 
-        // Update grid template to accommodate new column
-        const currentStyle = (gridContainer as HTMLElement).style
-          .gridTemplateColumns;
-        if (!currentStyle.includes("8,")) {
-          (gridContainer as HTMLElement).style.gridTemplateColumns =
-            "repeat(8, minmax(0px, 1fr))";
+        // Update grid template to 8 columns to accommodate all elements
+        (gridContainer as HTMLElement).style.gridTemplateColumns =
+          "repeat(8, minmax(0px, 1fr))";
+
+        // Insert PnL column after pools column but before other columns
+        if (poolsColumn && otherColumns.length > 0) {
+          gridContainer.insertBefore(pnlColumn, otherColumns[0]);
+        } else if (poolsColumn) {
+          gridContainer.appendChild(pnlColumn);
         }
       } catch (error) {
         console.error(
@@ -307,22 +308,30 @@ class DAMMPoolManager {
       // Check if PnL header already exists
       if (header.querySelector(".lancer-pnl-header")) return;
 
+      // Find all existing column headers (excluding Pools which spans 1/4)
+      const poolsHeader = header.querySelector('[style*="grid-column: 1 / 4"]');
+      const otherHeaders = Array.from(header.children).filter(
+        (child) =>
+          child !== poolsHeader &&
+          !child.classList.contains("lancer-pnl-header")
+      );
+
+      // Update grid template to 8 columns to accommodate all elements
+      (header as HTMLElement).style.gridTemplateColumns =
+        "repeat(8, minmax(0px, 1fr))";
+
       // Create PnL header
       const pnlHeader = document.createElement("div");
       pnlHeader.className =
         "flex-row gap-2 items-center flex text-end justify-end lancer-pnl-header";
-      pnlHeader.style.gridColumn = "2 / 3";
       pnlHeader.textContent = "Position PnL";
 
-      // Insert after the Pools header
-      const poolsHeader = header.querySelector('[style*="grid-column: 1 / 4"]');
-      if (poolsHeader && poolsHeader.parentNode) {
-        poolsHeader.parentNode.insertBefore(pnlHeader, poolsHeader.nextSibling);
+      // Insert PnL header after Pools header but before other headers
+      if (poolsHeader && poolsHeader.nextSibling) {
+        header.insertBefore(pnlHeader, poolsHeader.nextSibling);
+      } else if (poolsHeader) {
+        header.insertBefore(pnlHeader, otherHeaders[0]);
       }
-
-      // Update grid template
-      (header as HTMLElement).style.gridTemplateColumns =
-        "repeat(8, minmax(0px, 1fr))";
     } catch (error) {
       console.error("❌ Lancer: Error adding PnL header:", error);
     }
