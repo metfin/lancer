@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Lancer - Meteora Portfolio Enhancer",
+  "name": "Lancer",
   "version": "1.0.0",
-  "description": "Enhanced UI elements and tools for Meteora v2 portfolio page with Solana RPC integration",
+  "description": "Enhanced UI elements and tools for Meteora",
   "permissions": ["activeTab", "storage", "scripting"],
   "host_permissions": [
     "https://v2.meteora.ag/*",
@@ -11,13 +11,12 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Lancer - Meteora Enhancer"
+    "default_title": "Lancer"
   },
   "content_scripts": [
     {
       "matches": ["https://v2.meteora.ag/portfolio*"],
-      "js": ["content.js"],
-      "css": ["content.css"]
+      "js": ["content.js"]
     }
   ],
   "web_accessible_resources": [
@@ -25,11 +24,5 @@
       "resources": ["assets/*"],
       "matches": ["https://v2.meteora.ag/*"]
     }
-  ],
-  "icons": {
-    "16": "icon16.png",
-    "32": "icon32.png",
-    "48": "icon48.png",
-    "128": "icon128.png"
-  }
+  ]
 }

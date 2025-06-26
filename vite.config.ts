@@ -5,6 +5,7 @@ import path from "path";
 
 // https://vite.dev/config/
 export default defineConfig({
+  base: "./",
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
@@ -14,7 +15,7 @@ export default defineConfig({
   build: {
     rollupOptions: {
       input: {
-        popup: path.resolve(__dirname, "public/popup.html"),
+        popup: path.resolve(__dirname, "popup.html"),
         content: path.resolve(__dirname, "src/content.ts"),
       },
       output: {
