@@ -69,5 +69,10 @@ globalThis.process = process;
 globalThis.Buffer = Buffer;
 globalThis.global = globalThis;
 
+// Ensure BigInt is preserved and not polyfilled
+if (typeof BigInt !== "undefined") {
+  globalThis.BigInt = BigInt;
+}
+
 // Export for the inject mechanism
 export { process, Buffer };
