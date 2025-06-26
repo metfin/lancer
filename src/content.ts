@@ -1,13 +1,20 @@
 // Enhanced logging and page detection
 console.log("🚀 Lancer: Content script loaded for Meteora portfolio");
-console.log("🌍 Lancer: Current URL:", window.location.href);
 console.log("⏰ Lancer: Script loaded at:", new Date().toISOString());
 
-// Create a global object to access the backend
+// Import the real backend
+import { lancerBackend } from "./backend";
+
+// Make the backend globally accessible
 declare global {
   interface Window {
-    lancerBackend: any;
+    lancerBackend: typeof lancerBackend;
   }
+}
+
+// Expose the backend to the global scope for debugging
+if (typeof window !== "undefined") {
+  window.lancerBackend = lancerBackend;
 }
 
 // Verify we're on the right page
@@ -78,53 +85,8 @@ class ExtensionStorage {
   }
 }
 
-// Create a simple backend wrapper
-class LancerBackendWrapper {
-  private _isInitialized = false;
-  private positionPnLData = new Map();
-  private overallPnL = null;
-
-  async initialize(): Promise<boolean> {
-    console.log("LancerBackendWrapper: Initializing...");
-    this._isInitialized = true;
-    return true;
-  }
-
-  getOverallPnL() {
-    return (
-      this.overallPnL || {
-        totalPnLUSD: 0,
-        totalPnLPercentage: 0,
-      }
-    );
-  }
-
-  getAllPositionsPnL() {
-    return this.positionPnLData;
-  }
-
-  async loadUserPositions(walletAddress: string): Promise<void> {
-    console.log(`LancerBackendWrapper: Loading positions for ${walletAddress}`);
-    // Mock implementation
-    return Promise.resolve();
-  }
-
-  async refreshAllPnL(): Promise<void> {
-    console.log("LancerBackendWrapper: Refreshing all PnL");
-    return Promise.resolve();
-  }
-
-  startPnLUpdates(): void {
-    console.log("LancerBackendWrapper: Starting PnL updates");
-  }
-
-  isInitialized(): boolean {
-    return this._isInitialized;
-  }
-}
-
-// Create and export the backend instance
-const lancerBackend = new LancerBackendWrapper();
+// Use the real backend instance from backend.ts
+// (imported at the top of the file)
 
 // DAMM Pool Manager Implementation
 interface PoolTableEntry {
@@ -179,10 +141,6 @@ class OverallPnLManager {
       console.log("❌ Lancer: Portfolio stats container not found");
       return;
     }
-
-    console.log(
-      "✅ Lancer: Found portfolio stats container, starting monitoring"
-    );
 
     // Set up mutation observer to watch for container changes
     this.pnlObserver = new MutationObserver((mutations) => {
@@ -268,9 +226,6 @@ class OverallPnLManager {
     this.addOverallPnLToNetValue(netValueContainer);
 
     this.isOverallPnLInjected = true;
-    console.log(
-      "💰 Lancer: Overall PnL added to Net Value component successfully"
-    );
   }
 
   private static addOverallPnLToNetValue(netValueContainer: HTMLElement): void {
@@ -282,7 +237,6 @@ class OverallPnLManager {
       ".flex.flex-row.gap-2"
     );
     if (!statsSection) {
-      console.log("❌ Lancer: Stats section not found in Net Value component");
       return;
     }
 
@@ -413,15 +367,21 @@ class DAMMPoolManager {
   static async initialize(): Promise<void> {
     console.log("🎯 Lancer: Initializing DAMM Pool Manager");
 
-    // Load existing pool addresses from storage
-    const existingPools = await ExtensionStorage.getPoolAddresses();
-    this.currentPoolAddresses = new Set(existingPools);
-
-    // Start monitoring the pool table
+    // Start monitoring the pool table first
     this.startPoolTableMonitoring();
 
-    // Load real PnL data from backend
-    await this.loadRealPnLData();
+    // Wait a bit for the backend to potentially load positions
+    setTimeout(async () => {
+      // Load existing pool addresses from storage
+      const existingPools = await ExtensionStorage.getPoolAddresses();
+      this.currentPoolAddresses = new Set(existingPools);
+
+      // Load real PnL data from backend
+      await this.loadRealPnLData();
+
+      // Initial scan and update
+      await this.scanAndUpdatePools();
+    }, 1000);
   }
 
   static async loadRealPnLData(): Promise<void> {
@@ -440,11 +400,25 @@ class DAMMPoolManager {
         });
       }
 
-      console.log(`Loaded real PnL data for ${this.pnlData.size} positions`);
+      console.log(`✅ Loaded real PnL data for ${this.pnlData.size} positions`);
+
+      // Debug: Log the actual PnL data
+      if (this.pnlData.size > 0) {
+        console.log("📊 PnL Data loaded:");
+        for (const [poolAddress, pnlData] of this.pnlData) {
+          console.log(
+            `  Pool ${poolAddress.slice(0, 8)}...: $${pnlData.pnl.toFixed(
+              2
+            )} (${pnlData.pnlPercentage.toFixed(2)}%)`
+          );
+        }
+      }
     } catch (error) {
-      console.error("Error loading real PnL data:", error);
-      // Fallback to mock data if backend fails
-      this.generateMockPnLData();
+      console.error("❌ Error loading real PnL data:", error);
+      // No fallback to mock data - we want real data only
+      console.warn(
+        "⚠️ Real PnL data not available - positions may show no PnL data"
+      );
     }
   }
 
@@ -656,10 +630,8 @@ class DAMMPoolManager {
 
         // Get PnL data for this pool
         const pnlData = this.pnlData.get(entry.poolAddress);
-        const pnl = pnlData ? pnlData.pnl : this.generateRandomPnL();
-        const pnlPercentage = pnlData
-          ? pnlData.pnlPercentage
-          : this.generateRandomPnLPercentage();
+        const pnl = pnlData ? pnlData.pnl : 0;
+        const pnlPercentage = pnlData ? pnlData.pnlPercentage : 0;
 
         // If PnL column exists, just update the values instead of recreating
         if (existingPnL) {
@@ -798,30 +770,6 @@ class DAMMPoolManager {
     }
   }
 
-  private static generateMockPnLData(): void {
-    const mockData = [
-      {
-        poolAddress: "24q6wuB52rCx6Poh6KTqPeeD7iW2j7ibEtL3H2t8UqmN",
-        pnl: 23.45,
-        pnlPercentage: 15.67,
-      },
-      { poolAddress: "examplepool2", pnl: -12.3, pnlPercentage: -8.94 },
-      { poolAddress: "examplepool3", pnl: 45.78, pnlPercentage: 22.11 },
-    ];
-
-    for (const data of mockData) {
-      this.pnlData.set(data.poolAddress, data);
-    }
-  }
-
-  private static generateRandomPnL(): number {
-    return (Math.random() - 0.5) * 100;
-  }
-
-  private static generateRandomPnLPercentage(): number {
-    return (Math.random() - 0.5) * 50;
-  }
-
   static getCurrentPoolAddresses(): string[] {
     return Array.from(this.currentPoolAddresses);
   }
@@ -880,8 +828,6 @@ function waitForElement(
 
 // Function to detect and handle DAMM V2 tab activation
 async function handleDAMMV2Activation() {
-  console.log("🎯 Lancer: DAMM V2 tab activated!");
-
   try {
     // Wait for the table to fully load
     await waitForElement(".w-full.h-full.overflow-auto", 5000);
@@ -899,11 +845,8 @@ async function handleDAMMV2Activation() {
 
       // Force initial PnL injection after a short delay
       setTimeout(() => {
-        console.log("🔄 Lancer: Forcing initial PnL injection...");
         DAMMPoolManager.debouncedScanAndUpdate();
       }, 1000);
-
-      console.log("⚡ Lancer: DAMM V2 functionality initialized");
     }, 500);
   } catch (error) {
     console.error(
@@ -960,11 +903,7 @@ function setupDAMMV2Monitor() {
   const addClickListener = () => {
     const dammV2Button = findDAMMV2Button();
     if (dammV2Button) {
-      console.log("✅ Lancer: Found DAMM V2 button, adding click listener");
-
       dammV2Button.addEventListener("click", () => {
-        console.log("🔘 Lancer: DAMM V2 button clicked");
-
         // Clean up previous instance
         handleDAMMV2Deactivation();
 
@@ -1117,7 +1056,7 @@ async function initializeLancerBackend(): Promise<void> {
     if (walletAddress) {
       console.log(`🔍 Lancer: Detected wallet address: ${walletAddress}`);
 
-      // Load user positions
+      // Load user positions from the blockchain
       await lancerBackend.loadUserPositions(walletAddress);
 
       // Start automatic PnL updates
@@ -1125,7 +1064,26 @@ async function initializeLancerBackend(): Promise<void> {
 
       console.log("✅ Lancer: Backend fully initialized with positions");
     } else {
-      console.warn("⚠️ Lancer: Could not detect wallet address");
+      console.warn("⚠️ Lancer: Could not detect wallet address from page");
+
+      // Try to extract wallet from URL if this is a portfolio page
+      const urlParts = window.location.pathname.split("/");
+      const portfolioIndex = urlParts.indexOf("portfolio");
+      if (portfolioIndex !== -1 && urlParts[portfolioIndex + 1]) {
+        const urlWallet = urlParts[portfolioIndex + 1];
+        console.log(`🔍 Lancer: Trying wallet address from URL: ${urlWallet}`);
+
+        try {
+          await lancerBackend.loadUserPositions(urlWallet);
+          lancerBackend.startPnLUpdates();
+          console.log("✅ Lancer: Backend initialized with wallet from URL");
+        } catch (error) {
+          console.error(
+            "❌ Lancer: Failed to load positions from URL wallet:",
+            error
+          );
+        }
+      }
     }
   } catch (error) {
     console.error("❌ Lancer: Error initializing backend:", error);
