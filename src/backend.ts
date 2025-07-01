@@ -838,26 +838,6 @@ export class LancerBackend {
       positions: [...positions],
     };
 
-    // Detailed overall PnL logging
-    console.log(`📈 Overall Portfolio PnL Summary:`);
-    console.log(`  Positions: ${positions.length}`);
-    console.log(`  Total Current Value: $${totalCurrentValueUSD.toFixed(2)}`);
-    console.log(`  Total Initial Value: $${totalInitialValueUSD.toFixed(2)}`);
-    console.log(`  Total Fees Earned: $${totalFeesEarnedUSD.toFixed(2)}`);
-    console.log(
-      `  Total PnL: $${totalPnLUSD.toFixed(2)} (${totalPnLPercentage.toFixed(
-        2
-      )}%)`
-    );
-    console.log(`  Breakdown by position:`);
-    positions.forEach((pos, index) => {
-      console.log(
-        `    ${index + 1}. Pool ...${pos.poolAddress.slice(
-          -8
-        )}: $${pos.pnlUSD.toFixed(2)} (${pos.pnlPercentage.toFixed(2)}%)`
-      );
-    });
-
     // Dispatch event to notify frontend about PnL update
     this.notifyPnLUpdate();
   }
@@ -905,4 +885,231 @@ export class LancerBackend {
 
       return {
         mint: mintAddress,
-        symbol: `
+        symbol: `TOKEN_${mintAddress.slice(0, 4)}`, // Placeholder symbol
+        decimals,
+      };
+    } catch (error) {
+      console.error(`Error fetching token info for ${mintAddress}:`, error);
+      return {
+        mint: mintAddress,
+        symbol: `UNKNOWN`,
+        decimals: 9, // Default decimals
+      };
+    }
+  }
+
+  /**
+   * Get current token price from Jupiter or other price feeds
+   */
+  private async getCurrentTokenPrice(mintAddress: string): Promise<number> {
+    try {
+      // Try Jupiter first
+      const response = await fetch(
+        `https://lite-api.jup.ag/price/v2?ids=${mintAddress}`
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.data && data.data[mintAddress]) {
+          return parseFloat(data.data[mintAddress].price);
+        }
+      }
+
+      // Fallback to other price sources or return 0
+      console.warn(`Could not fetch price for token ${mintAddress}`);
+      return 0;
+    } catch (error) {
+      console.error(`Error fetching price for token ${mintAddress}:`, error);
+      return 0;
+    }
+  }
+
+  /**
+   * Check if position data is stale and needs refresh
+   */
+  private isPositionDataStale(positionData: PositionPnLData): boolean {
+    const now = new Date();
+    const timeDiff = now.getTime() - positionData.lastUpdated.getTime();
+    return timeDiff > LancerBackend.STALE_THRESHOLD;
+  }
+
+  /**
+   * Get PnL data for a specific pool
+   */
+  getPositionPnL(poolAddress: string): PositionPnLData | null {
+    return this.positionPnLData.get(poolAddress) || null;
+  }
+
+  /**
+   * Get overall portfolio PnL
+   */
+  getOverallPnL(): OverallPnLData | null {
+    return this.overallPnL;
+  }
+
+  /**
+   * Get all position PnL data
+   */
+  getAllPositionsPnL(): Map<string, PositionPnLData> {
+    return new Map(this.positionPnLData);
+  }
+
+  /**
+   * Force refresh of all PnL data
+   */
+  async refreshAllPnL(): Promise<void> {
+    await this.updateAllPositionsPnL();
+  }
+
+  /**
+   * Force refresh of specific position PnL
+   */
+  async refreshPositionPnL(
+    poolAddress: string
+  ): Promise<PositionPnLData | null> {
+    return await this.updatePositionPnL(poolAddress);
+  }
+
+  /**
+   * Clear all cached PnL data
+   */
+  clearPnLCache(): void {
+    this.positionPnLData.clear();
+    this.overallPnL = null;
+    console.log("Lancer Backend: PnL cache cleared");
+  }
+
+  /**
+   * Load positions from user's wallet and cache them
+   */
+  async loadUserPositions(walletAddress: string): Promise<void> {
+    try {
+      if (!this.cpAmm) {
+        throw new Error("Backend not initialized");
+      }
+
+      console.log(`Loading positions for wallet: ${walletAddress}`);
+
+      const userPublicKey = new PublicKey(walletAddress);
+
+      // Add more detailed error handling around the SDK call
+      let positions;
+      try {
+        console.log("🔍 Fetching positions from CP-AMM SDK...");
+        positions = await this.cpAmm.getPositionsByUser(userPublicKey);
+        console.log(
+          `✅ Successfully fetched ${positions.length} positions from SDK`
+        );
+      } catch (sdkError: unknown) {
+        console.error("❌ CP-AMM SDK error when fetching positions:", sdkError);
+
+        // If it's a BigInt conversion error, provide more specific guidance
+        if (sdkError instanceof Error && sdkError.message.includes("BigInt")) {
+          console.error(
+            "🔧 BigInt conversion error detected. This usually indicates:"
+          );
+          console.error("  1. Corrupted account data on-chain");
+          console.error(
+            "  2. Incompatible SDK version with current on-chain program"
+          );
+          console.error(
+            "  3. Network/RPC issues causing partial data retrieval"
+          );
+          console.error("💡 Suggested fixes:");
+          console.error("  - Try a different RPC endpoint");
+          console.error("  - Check if the wallet has any DAMM positions");
+          console.error("  - Verify the wallet address is correct");
+        }
+
+        // For BigInt errors, don't throw - just return empty positions
+        if (sdkError instanceof Error && sdkError.message.includes("BigInt")) {
+          console.warn(
+            "⚠️ BigInt conversion error - continuing with 0 positions"
+          );
+          console.warn(
+            "This usually means the wallet has no DAMM positions or RPC issues"
+          );
+          positions = []; // Set empty positions array
+        } else {
+          // For other errors, still throw
+          const errorMessage =
+            sdkError instanceof Error ? sdkError.message : String(sdkError);
+          throw new Error(
+            `Failed to fetch positions from CP-AMM SDK: ${errorMessage}`
+          );
+        }
+      }
+
+      // Clear existing cache
+      this.userPositions.clear();
+
+      // Cache the positions
+      for (const position of positions) {
+        this.userPositions.set(
+          position.position.toString(),
+          position.positionState
+        );
+      }
+
+      console.log(
+        `✅ Loaded ${positions.length} positions for wallet ${walletAddress}`
+      );
+
+      // Update pool addresses in storage to match loaded positions
+      const poolAddresses = Array.from(this.userPositions.values()).map((pos) =>
+        pos.pool.toString()
+      );
+      await ExtensionStorage.savePoolAddresses(poolAddresses);
+
+      console.log(
+        `📋 Updated tracked pool addresses: ${poolAddresses.length} pools`
+      );
+
+      // Trigger immediate PnL calculation for all loaded positions
+      if (poolAddresses.length > 0) {
+        console.log(
+          "🔄 Lancer Backend: Triggering immediate PnL calculation..."
+        );
+        await this.updateAllPositionsPnL();
+        console.log("✅ Lancer Backend: Initial PnL calculation completed");
+      }
+    } catch (error) {
+      console.error("❌ Error loading user positions:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get cached user positions
+   */
+  getUserPositions(): Map<string, PositionState> {
+    return new Map(this.userPositions);
+  }
+
+  /**
+   * Check if we have positions loaded
+   */
+  hasPositionsLoaded(): boolean {
+    return this.userPositions.size > 0;
+  }
+}
+
+// Initialize the backend when the module is loaded
+// This will be called when the content script runs on v2.meteora.ag
+export const lancerBackend = LancerBackend.getInstance();
+
+// Auto-initialize when visiting meteora
+if (
+  typeof window !== "undefined" &&
+  window.location.hostname.includes("meteora.ag")
+) {
+  lancerBackend.initialize().then((success) => {
+    if (success) {
+      console.log("Lancer Backend: Auto-initialization successful");
+    } else {
+      console.log(
+        "Lancer Backend: Auto-initialization failed - check RPC configuration"
+      );
+    }
+  });
+}
