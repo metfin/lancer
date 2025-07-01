@@ -329,27 +329,17 @@ class OverallPnLManager {
 
     // Create dollar value
     const dollarValueContainer = document.createElement("div");
-    dollarValueContainer.className =
-      "flex flex-rows items-center whitespace-nowrap";
-
-    const dollarSign = document.createElement("span");
-    dollarSign.textContent = "$";
-
-    const dollarValue = document.createElement("span");
-    dollarValue.className = `lancer-pnl-usd ${
-      isPositive ? "text-success-primary" : "text-danger-primary"
+    dollarValueContainer.className = `flex flex-rows items-center whitespace-nowrap lancer-pnl-usd ${
+      isPositive ? "text-success-primary" : "text-danger"
     }`;
-    dollarValue.textContent = `${isPositive ? "+" : ""}${Math.abs(usd).toFixed(
-      2
-    )}`;
-
-    dollarValueContainer.appendChild(dollarSign);
-    dollarValueContainer.appendChild(dollarValue);
+    dollarValueContainer.textContent = `${isPositive ? "+" : ""}$${Math.abs(
+      usd
+    ).toFixed(2)}`;
 
     // Create percentage value (smaller text below dollar value)
     const percentageDiv = document.createElement("div");
     percentageDiv.className = `text-xs font-medium lancer-pnl-percent ${
-      isPositive ? "text-success-primary" : "text-danger-primary"
+      isPositive ? "text-success-primary" : "text-danger"
     }`;
     percentageDiv.textContent = `${
       percentage >= 0 ? "+" : ""
@@ -384,10 +374,10 @@ class OverallPnLManager {
     // Update dollar value
     const dollarValue = pnlSection.querySelector(".lancer-pnl-usd");
     if (dollarValue) {
-      dollarValue.className = `lancer-pnl-usd ${
-        isPositive ? "text-green-500" : "text-red-500"
+      dollarValue.className = `flex flex-rows items-center whitespace-nowrap lancer-pnl-usd ${
+        isPositive ? "text-success-primary" : "text-danger"
       }`;
-      dollarValue.textContent = `${isPositive ? "+" : ""}${Math.abs(
+      dollarValue.textContent = `${isPositive ? "+" : ""}$${Math.abs(
         usd
       ).toFixed(2)}`;
     }
@@ -396,7 +386,7 @@ class OverallPnLManager {
     const percentageElement = pnlSection.querySelector(".lancer-pnl-percent");
     if (percentageElement) {
       percentageElement.className = `text-xs font-medium lancer-pnl-percent ${
-        isPositive ? "text-green-400" : "text-red-400"
+        isPositive ? "text-success-primary" : "text-danger"
       }`;
       percentageElement.textContent = `${
         percentage >= 0 ? "+" : ""
@@ -809,14 +799,14 @@ class DAMMPoolManager {
           if (pnlValue && pnlPercent) {
             // Update existing values
             pnlValue.className = `flex flex-rows items-center whitespace-nowrap text-sm font-medium lancer-pnl-value ${
-              pnl >= 0 ? "text-green-500" : "text-red-500"
+              pnl >= 0 ? "text-success-primary" : "text-danger"
             }`;
             pnlValue.textContent = `${pnl >= 0 ? "+" : ""}$${Math.abs(
               pnl
             ).toFixed(2)}`;
 
             pnlPercent.className = `text-xs lancer-pnl-percent ${
-              pnl >= 0 ? "text-green-400" : "text-red-400"
+              pnl >= 0 ? "text-success-primary" : "text-danger"
             }`;
             pnlPercent.textContent = `${
               pnlPercentage >= 0 ? "+" : ""
@@ -842,7 +832,7 @@ class DAMMPoolManager {
         // PnL value
         const pnlValue = document.createElement("div");
         pnlValue.className = `flex flex-rows items-center whitespace-nowrap text-sm font-medium lancer-pnl-value ${
-          pnl >= 0 ? "text-green-500" : "text-red-500"
+          pnl >= 0 ? "text-success-primary" : "text-danger"
         }`;
         pnlValue.textContent = `${pnl >= 0 ? "+" : ""}$${Math.abs(pnl).toFixed(
           2
@@ -851,7 +841,7 @@ class DAMMPoolManager {
         // PnL percentage
         const pnlPercent = document.createElement("div");
         pnlPercent.className = `text-xs lancer-pnl-percent ${
-          pnl >= 0 ? "text-green-400" : "text-red-400"
+          pnl >= 0 ? "text-success-primary" : "text-danger"
         }`;
         pnlPercent.textContent = `${
           pnlPercentage >= 0 ? "+" : ""
