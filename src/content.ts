@@ -492,14 +492,12 @@ class DAMMPoolManager {
         const elapsedTime = Date.now() - startTime;
 
         if (hasData) {
-          console.log("✅ Lancer: Backend PnL data is available");
           resolve();
           return;
         }
 
         if (elapsedTime >= maxWaitTime) {
-          console.warn("⚠️ Lancer: Timeout waiting for backend PnL data");
-          resolve(); // Continue anyway
+          resolve();
           return;
         }
 
@@ -513,39 +511,8 @@ class DAMMPoolManager {
 
   static async loadRealPnLData(): Promise<void> {
     try {
-      console.log("🔍 Lancer: Loading PnL data from backend...");
-
       // Get PnL data from the backend
       const allPnLData = lancerBackend.getAllPositionsPnL();
-
-      console.log(`📊 Lancer: Backend returned ${allPnLData.size} positions`);
-
-      // Debug: Log what the backend returned
-      if (allPnLData.size > 0) {
-        console.log("🔍 Backend PnL data detail:");
-        for (const [poolAddress, pnlData] of allPnLData) {
-          console.log(
-            `  Pool ${poolAddress.slice(0, 8)}...: $${pnlData.pnlUSD.toFixed(
-              2
-            )} (${pnlData.pnlPercentage.toFixed(2)}%)`
-          );
-        }
-      } else {
-        console.log("⚠️ No PnL data returned from backend");
-        // Let's check if backend has positions loaded
-        const backendPositions = lancerBackend.getUserPositions();
-        console.log(
-          `📍 Backend has ${backendPositions.size} user positions loaded`
-        );
-
-        // Check if backend is initialized
-        const isBackendInit = lancerBackend.isInitialized();
-        console.log(`🔧 Backend initialized: ${isBackendInit}`);
-
-        // Check overall PnL data
-        const overallPnL = lancerBackend.getOverallPnL();
-        console.log(`💰 Backend overall PnL:`, overallPnL);
-      }
 
       // Convert to the format expected by the UI
       this.pnlData.clear();
@@ -559,18 +526,6 @@ class DAMMPoolManager {
       }
 
       console.log(`✅ Loaded real PnL data for ${this.pnlData.size} positions`);
-
-      // Debug: Log the actual PnL data
-      if (this.pnlData.size > 0) {
-        console.log("📊 PnL Data loaded:");
-        for (const [poolAddress, pnlData] of this.pnlData) {
-          console.log(
-            `  Pool ${poolAddress.slice(0, 8)}...: $${pnlData.pnl.toFixed(
-              2
-            )} (${pnlData.pnlPercentage.toFixed(2)}%)`
-          );
-        }
-      }
     } catch (error) {
       console.error("❌ Error loading real PnL data:", error);
       // No fallback to mock data - we want real data only
@@ -1208,8 +1163,6 @@ async function getConfiguredWalletAddress(): Promise<string | null> {
 // Main initialization function
 async function initializeLancerBackend(): Promise<void> {
   try {
-    console.log("🔧 Lancer: Initializing backend...");
-
     // Initialize the backend first
     const backendInitialized = await lancerBackend.initialize();
 
