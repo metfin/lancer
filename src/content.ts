@@ -1336,113 +1336,6 @@ async function getWalletAddressFromStorage(): Promise<string | null> {
   }
 }
 
-// Add refresh button to the page
-function addPnLRefreshButton(): void {
-  // Check if button already exists
-  if (document.querySelector(".lancer-refresh-button")) {
-    return;
-  }
-
-  // Find a suitable container (near the Net Value section)
-  const netValueElements = document.querySelectorAll("h1");
-  let container: HTMLElement | null = null;
-
-  for (const element of netValueElements) {
-    if (element.textContent?.trim() === "Net Value") {
-      container = element.closest(".md\\:col-span-2") as HTMLElement;
-      break;
-    }
-  }
-
-  if (!container) {
-    console.log("Could not find suitable container for refresh button");
-    return;
-  }
-
-  // Create refresh button
-  const refreshButton = document.createElement("button");
-  refreshButton.className = "lancer-refresh-button";
-  refreshButton.innerHTML = `
-    <div style="
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      padding: 6px 12px;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      border: none;
-      border-radius: 6px;
-      font-size: 12px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: all 0.2s ease;
-      margin-left: 8px;
-    ">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
-        <path d="M21 3v5h-5"/>
-        <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>
-        <path d="M3 21v-5h5"/>
-      </svg>
-      <span class="lancer-refresh-text">Refresh PnL</span>
-    </div>
-  `;
-
-  // Add hover effects
-  refreshButton.addEventListener("mouseenter", () => {
-    const div = refreshButton.querySelector("div") as HTMLElement;
-    if (div) {
-      div.style.transform = "scale(1.05)";
-      div.style.boxShadow = "0 4px 12px rgba(102, 126, 234, 0.4)";
-    }
-  });
-
-  refreshButton.addEventListener("mouseleave", () => {
-    const div = refreshButton.querySelector("div") as HTMLElement;
-    if (div) {
-      div.style.transform = "scale(1)";
-      div.style.boxShadow = "none";
-    }
-  });
-
-  // Add click handler
-  refreshButton.addEventListener("click", async () => {
-    const textSpan = refreshButton.querySelector(
-      ".lancer-refresh-text"
-    ) as HTMLElement;
-    const originalText = textSpan.textContent;
-
-    try {
-      textSpan.textContent = "Refreshing...";
-      refreshButton.style.opacity = "0.7";
-      refreshButton.style.pointerEvents = "none";
-
-      await DAMMPoolManager.refreshPnLData();
-
-      textSpan.textContent = "✓ Refreshed";
-      setTimeout(() => {
-        textSpan.textContent = originalText;
-      }, 2000);
-    } catch (error) {
-      textSpan.textContent = "✗ Error";
-      setTimeout(() => {
-        textSpan.textContent = originalText;
-      }, 2000);
-    } finally {
-      refreshButton.style.opacity = "1";
-      refreshButton.style.pointerEvents = "auto";
-    }
-  });
-
-  // Add button to the container header
-  const header = container.querySelector("h1");
-  if (header && header.parentElement) {
-    header.parentElement.style.display = "flex";
-    header.parentElement.style.alignItems = "center";
-    header.parentElement.appendChild(refreshButton);
-  }
-}
-
 // Enhanced main initialization
 async function injectEnhancements() {
   console.log("🚀 Lancer: Starting enhanced injection");
@@ -1460,9 +1353,6 @@ async function injectEnhancements() {
 
     // Setup DAMM V2 tab monitoring
     setupDAMMV2Monitor();
-
-    // Add refresh button
-    addPnLRefreshButton();
 
     // Add footer
     addLancerToFooter(lancerBackend.isInitialized());
