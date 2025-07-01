@@ -128,10 +128,9 @@ export function SettingsForm() {
   };
 
   const canSave =
-    settings.rpcUrl.trim() !== "" &&
-    isValidUrl(settings.rpcUrl) &&
-    settings.walletAddress.trim() !== "" &&
-    isValidSolanaAddress(settings.walletAddress);
+    (settings.rpcUrl.trim() === "" || isValidUrl(settings.rpcUrl)) &&
+    (settings.walletAddress.trim() === "" ||
+      isValidSolanaAddress(settings.walletAddress));
 
   if (initialLoading) {
     return (
